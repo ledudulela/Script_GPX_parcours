@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-SCRIPT_VERSION=20210416.1700
+SCRIPT_VERSION=20210416.1811
 SCRIPT_AUTHOR="fdz, ctesc356"
 # Le script accepte les parametres optionnels suivants:
 #  -i fileName  (pour changer de fichier source)
@@ -40,8 +40,10 @@ class GPoint:
       pt=self
       if not pt.sym.find("Airport")==-1: pt.sym="airport"
       if not pt.sym.find("Heliport")==-1: pt.sym="airport"
-      if not pt.sym.find("Navaid")==-1: pt.sym="navaid"
       if not pt.sym.find("Triangle")==-1: pt.sym="basic"
+      if not pt.sym.find("Navaid")==-1:
+         pt.sym="navaid" # offset-navaid
+         pt.name=pt.name[0:3].rstrip()
       
       strOACI=""
       if pt.sym=="airport":
