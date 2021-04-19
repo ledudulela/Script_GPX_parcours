@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-SCRIPT_VERSION=20210416.1811
+SCRIPT_VERSION=20210419.1933
 SCRIPT_AUTHOR="fdz, ctesc356"
 # Le script accepte les parametres optionnels suivants:
 #  -i fileName  (pour changer de fichier source)
@@ -87,7 +87,8 @@ def XmlToPoint(strXML,strType):
 
 # ----------------------------------------------------------------------------------------------------------
 def chercheWaypointDansAixmEtExporte(AixmFileName,strTypePt="W"):
-   fileName="parcours"
+   fileName=sys.argv[0]
+   fileName=fileName.replace(".py","")
    fichierTxt=fileName+".txt"
    fichierGpx=fileName+".gpx"
    fichierCsv=fileName+".csv"
