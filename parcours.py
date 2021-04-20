@@ -1,10 +1,17 @@
 #!/usr/bin/python3
-SCRIPT_VERSION=20210419.1933
+# -*- coding: UTF-8 -*-
+SCRIPT_VERSION=20210420.2105
 SCRIPT_AUTHOR="fdz, ctesc356"
-# Le script accepte les parametres optionnels suivants:
+# Le script accepte les paramètres optionnels suivants:
 #  -i fileName  (pour changer de fichier source)
 #  -w           (pour exports en waypoints)
 #  -t           (pour exports en trackpoints)
+#
+# What's new in this version:
+#  - Amélioration de la compatibilité GPX
+#  - Résolution du bug lié aux namespaces XML
+#  - Prise en charge de fichiers GPX en entrée autres que AIXM_FR
+#  - Régression: les fréquences doivent être indiquées dans le fichier texte pour identifier les émetteurs radio (CBY 115.40)
 import os.path
 import sys
 import getopt
@@ -12,7 +19,7 @@ from xml.etree import ElementTree as xmlDom
 
 # ----------------------------------------------------------------------------------------------------------
 class GPoint:
-   "Definition d'un point geographique"
+   "Définition d'un point géographique"
 
    def __init__(self,strType="W",strLat="0.0",strLon="0.0",strName="UNKNOWN",strEle="",strSym="Waypoint"):
       self.type=strType
@@ -23,6 +30,7 @@ class GPoint:
       self.sym=strSym
       #print("type:"+self.type,"name:"+self.name,"lat:"+self.lat,"lon:"+self.lon,"sym:"+self.sym,"ele:"+self.ele)
 
+   # conversion en GPX
    def toGpx(self):
       strReturn="<lat>"+self.lat+"</lat>" + "<lon>"+self.lon+"</lon>" + "<name>"+self.name+"</name>" + "<sym>"+self.sym+"</sym>"
       if self.ele != "": strReturn=strReturn+"<ele>"+self.ele+"</ele>"
@@ -30,12 +38,14 @@ class GPoint:
       if self.type=="T": strType="trkpt"
       strReturn="<"+strType+">" + strReturn + "</"+strType+">"
       return strReturn
-
+   
+   # conversion en CSV
    def toCsv(self):
       SEPAR=","
       return self.type + SEPAR + self.lat + SEPAR + self.lon + SEPAR + "\"" + self.sym + "\"" + SEPAR + self.name # self.ele
 
-   def toFgXml(self):
+   # conversion en XML compatible FGFS Route Manager
+   def toFgXml(self): 
       strReturn=""
       pt=self
       if not pt.sym.find("Airport")==-1: pt.sym="airport"
@@ -63,41 +73,72 @@ class GPoint:
 
 
 # ----------------------------------------------------------------------------------------------------------
+# Conversion du XML en un objet de type GPoint
 def XmlToPoint(strXML,strType):
    if len(strXML)>0:
-      nodeXML=xmlDom.fromstring(strXML)
+      nodeXML=xmlDom.fromstring(strXML.replace("ns0:","")) # au cas ou, retire le namespace par defaut
       #print(nodeXML.tag,nodeXML.attrib)
       pt=GPoint()
       pt.type=strType
       pt.lat=nodeXML.get('lat')
       pt.lon=nodeXML.get('lon')
+      # print(nodeXML[1].text) - noeud enfant
 
       if nodeXML.find('name') != None:
-         if nodeXML.find('name').text != None: pt.name=nodeXML.find('name').text
+         if nodeXML.find('name').text != None: 
+            pt.name=nodeXML.find('name').text
 
       if nodeXML.find('sym') != None:
-         if nodeXML.find('sym').text != None: pt.sym=nodeXML.find('sym').text
+         if nodeXML.find('sym').text != None: 
+            pt.sym=nodeXML.find('sym').text
 
       if nodeXML.find('ele') != None:
-         if nodeXML.find('ele').text != None: pt.ele=nodeXML.find('ele').text
+         if nodeXML.find('ele').text != None:
+            pt.ele=nodeXML.find('ele').text
    
       return pt
    else:
       return None
 
 # ----------------------------------------------------------------------------------------------------------
-def chercheWaypointDansAixmEtExporte(AixmFileName,strTypePt="W"):
+def chercheWaypointDansGpxEtExporte(strGpxInputFileName,strTypePt="W",strElementTreeEncoding="unicode"):
    fileName=sys.argv[0]
    fileName=fileName.replace(".py","")
    fichierTxt=fileName+".txt"
    fichierGpx=fileName+".gpx"
    fichierCsv=fileName+".csv"
    fichierXml=fileName+".xml"
+   fichierTmp=fileName+".dat"
 
-   if os.path.exists(AixmFileName) and os.path.exists(fichierTxt):
-      objFicAixm = open(AixmFileName, "r")
-      arrAixmFileLines=objFicAixm.readlines()    # charge le fichier bdd
-      objFicAixm.close()
+   if os.path.exists(strGpxInputFileName) and os.path.exists(fichierTxt):
+      print("In progress...")
+
+      # cree un fichier temporaire gpx a partir du fichier GPX en entree en retirant tous les retour-charriots inutiles,
+      # et en mettant les donnees en conformite
+      objFicTmp=open(fichierTmp, "w")    # raz fichier Tmp
+      objFicTmp=open(fichierTmp, "a")
+
+      objFicTmp.write('﻿<?xml version="1.0" encoding="UTF-8"?>'+"\n")
+      objFicTmp.write('<gpx version="1.0" creator="'+sys.argv[0]+'" xmlns="http://www.topografix.com/GPX/1/0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/0/gpx.xsd">'+"\n")
+
+      xmlContent=xmlDom.parse(strGpxInputFileName)
+      xmlRoot=xmlContent.getroot()
+      strNamespace={'ns0':'http://www.topografix.com/GPX/1/0'}
+      xmlWaypoints=xmlRoot.findall('ns0:wpt' ,strNamespace)
+      if len(xmlWaypoints)==0: xmlWaypoints=xmlRoot.findall('wpt')
+      for xmlWaypoint in xmlWaypoints:
+         strXml=xmlDom.tostring(xmlWaypoint,encoding=strElementTreeEncoding,method="xml")
+         pt=XmlToPoint(strXml,strTypePt)
+         strXmlLine='<wpt'+' lat="'+pt.lat+'"'+' lon="'+pt.lon+'"'+'>'+'<name>'+pt.name+'</name>'+'<sym>'+pt.sym+'</sym>'+'<ele>'+pt.ele+'</ele>'+'</wpt>'
+         objFicTmp.write(strXmlLine+"\n")
+      objFicTmp.write("</gpx>")    #ligne de fin
+      objFicTmp.close()
+
+      # ouvre le fichier GPX en entree
+      strGpxInputFileName=fichierTmp
+      objFicGpxInput = open(strGpxInputFileName, "r")
+      arrGpxInputFileLines=objFicGpxInput.readlines()    # charge le fichier bdd
+      objFicGpxInput.close()
 
       objFicTxt = open(fichierTxt, "r")
       arrTxtFileLines=objFicTxt.readlines()   # charge le fichier texte
@@ -115,102 +156,120 @@ def chercheWaypointDansAixmEtExporte(AixmFileName,strTypePt="W"):
       i=0
       r=0
       t=0
-      for wp in arrTxtFileLines:
-         wp=wp.rstrip('\n')   # suppression des lf
-         wp=wp.rstrip()
-         if len(wp)==0: wp="chainevide"
+      for txt in arrTxtFileLines: # boucle sur chaque ligne du fichier texte
+         txt=txt.rstrip("\n") # suppression des lf
+         txt=txt.rstrip()
+         if len(txt)==0: 
+            txt="chaine vide"
+         else:
+            r=r+1
 
-         r=r+1
-      
-         ap = wp # pour la recherche des aeroports: "LFLC"
-         sym="<sym>Airport"
-         if len(wp) == 5:sym="<sym>Triangle" # si 5 car on considere que le pt recherche est un point de report: "ALBER"
-   
-         na = wp # pour la recherche des navaids : "MEN"
-         if len(wp) == 3:
-            na="<name>" + na + " "
-            sym="<sym>Navaid"
-   
-         naf = wp # pour la recherche des navaids avec le debut de la frequence mais sans la decimale: "MEN 115"
-         if len(wp) == 7:
-            naf="<name>" + naf
-            sym="<sym>Navaid"
+         xAp = "["+txt+"]" # pour la recherche des aéroports: "LFLC"
+         xSym="<sym>Airport"
 
-         wp = "<name>" + wp + "</name>"  # pour une recherche a l'identique
+         #if len(txt) == 5:
+         #   xSym="<sym>Triangle" # si 5 caractères, on considère que le pt recherché est un point de report: "ALBER"
+   
+         #xNa = txt # pour la recherche des navaids : "MEN"
+         #if len(txt) == 3:
+         #  xNa="<name>" + xNa + " "
+         #   xSym="<sym>Navaid"
+   
+         #xNaf = txt # pour la recherche des navaids avec le début de la fréquence mais sans la décimale: "MEN 115"
+         #if len(txt) == 7:
+         #   xNaf="<name>" + xNaf
+         #   xSym="<sym>Navaid"
+
+         xIls = txt # pour recherche ILS <name>IPL 109.90 - 14 [FIMP] 186ft</name>
+         if len(txt) > 7:
+            xIls="<name>" + xIls
+            xSym="<sym>Pin, Red"
+
+         txt = "<name>" + txt + "</name>"  # pour une recherche (dans tous les cas) à l'identique
       
-         for line in arrAixmFileLines: # pour chaque ligne de la bdd XML
-            line=line.rstrip('\n')
+         for strXmlLine in arrGpxInputFileLines: # pour chaque ligne du fichier GPX
+            strXmlLine=strXmlLine.rstrip("\n")
             if i < 2:
-               objFicGpx.write(line)  # recopie des 2 lignes entete GPX
+               objFicGpx.write(strXmlLine)  # recopie des 2 lignes entête GPX
                objFicGpx.write("\n")
                i=i+1
 
                if i==2: 
-                  objFicCsv.write("type,latitude,longitude,sym,name")  #ecriture des entetes
+                  objFicCsv.write("type,latitude,longitude,sym,name")  # écriture des entêtes
                   objFicCsv.write("\n")
 
-                  objFicXml.write("<?xml version=\"1.0\"?><PropertyList><route>")  #ecriture entete
+                  objFicXml.write("<?xml version=\"1.0\"?><PropertyList><route>")  # écriture entête et noeud racine
                   objFicXml.write("\n")
 
                   if strTypePt=="T":
-                     objFicGpx.write("<trk><trkseg>")  #ecriture entete
+                     objFicGpx.write("<trk><trkseg>")  # écriture noeuds
                      objFicGpx.write("\n")
 
-
-            elif wp in line or (ap in line and sym in line) or (na in line and sym in line) or (naf in line and sym in line) :
-               print(line)
-               pt=XmlToPoint(line,strTypePt)
+            #elif txt in strXmlLine or ( xSym in strXmlLine and (xAp in strXmlLine or xNa in strXmlLine or xNaf in strXmlLine or xIls in strXmlLine) ) :
+            elif txt in strXmlLine or ( xSym in strXmlLine and (xAp in strXmlLine or xIls in strXmlLine) ) :
+               pt=XmlToPoint(strXmlLine,strTypePt)
                if pt != None: 
+                  print(strXmlLine)
+
                   line=pt.toGpx()
-                  objFicGpx.write(line) #ecriture ligne
+                  objFicGpx.write(line) # écriture ligne
                   objFicGpx.write("\n")
 
                   line=pt.toCsv()
-                  objFicCsv.write(line) # ecriture ligne
+                  objFicCsv.write(line) # écriture ligne
                   objFicCsv.write("\n")
 
                   line=pt.toFgXml()
-                  objFicXml.write(line) # ecriture ligne
+                  objFicXml.write(line) # écriture ligne
                   objFicXml.write("\n")
 	   
-               t=t+1
+                  t=t+1
                break
 
       if strTypePt=="T":
-         objFicGpx.write("</trkseg></trk>")  #ecriture fermeture entete
+         objFicGpx.write("</trkseg></trk>")  # écriture fermeture noeuds
          objFicGpx.write("\n")
-      objFicGpx.write("</gpx>")    #ligne fin
+      objFicGpx.write("</gpx>")    # écriture fermeture noeud racine
       objFicGpx.close()
 
-      objFicXml.write("</route></PropertyList>")    #ligne fin
+      objFicXml.write("</route></PropertyList>")    # écriture fermeture noeud racine
       objFicXml.close()
 
       objFicCsv.close()
    
       print("End: "+str(t)+"/"+str(r)+" waypoints.")
 
+   else:
+      print("Input-File(s) not found.")
+
 # ----------------------------------------------------------------------------------------------   
-def parseAIXM():
+# fonction de test pour parser du XML au format GPX
+def parseGPX():
    xmlContent=xmlDom.parse("AIXM_X_IFR_FR.gpx")
    xmlRoot=xmlContent.getroot()
-   xmlWaypoints=xmlRoot.findall('wpt') #  xmlns:gpx= {http://www.topografix.com/GPX/1/0}
+   strNamespace={'ns0':'http://www.topografix.com/GPX/1/0'}
+   xmlWaypoints=xmlRoot.findall('ns0:wpt')
    print(len(xmlWaypoints))
    i=0
    for xmlWaypoint in xmlWaypoints:
       i=i+1
-      strXml=xmlDom.tostring(xmlWaypoint,encoding="unicode",method="xml")
+      strElementTreeEncoding="unicode"
+      if sys.version_info.major<3: strElementTreeEncoding="UTF-8"
+      strXml=xmlDom.tostring(xmlWaypoint,encoding=strElementTreeEncoding,method="xml")
       pt=XmlToPoint(strXml,"W")
       print(i, pt.toCsv()) # xmlWaypoint
 
 # ---------------------------------------------------------------------------------------------- 
+# fonction principale récupérant les paramètres de ligne de commande
 def main(strFileName,strType="W"):
    try:                                
-      opts, args = getopt.getopt(sys.argv[1:], "i:tw") # ["input", "trackpoint", "waypoint"]
+      opts, args = getopt.getopt(sys.argv[1:], "i:twv") # ["input", "trackpoint", "waypoint"]
 
    except getopt.GetoptError:
       print("Parametre(s) non valide(s).")
       sys.exit(2) 
 
+   opt=""
    for opt, arg in opts:
       #print(opt)
       if opt == "-t": strType="T"
@@ -220,11 +279,15 @@ def main(strFileName,strType="W"):
 
    #print(sys.argv[0],sys.argv[1:])
    #print(strType,strFileName)
-   chercheWaypointDansAixmEtExporte(strFileName,strType) # type=W (waypoint) ou T (trackpoint)
+   strElementTreeEncoding="unicode"
+   if sys.version_info.major<3: strElementTreeEncoding="UTF-8"
+   if opt == "-v":
+      print("version:",SCRIPT_VERSION)
+   else:
+      chercheWaypointDansGpxEtExporte(strFileName,strType,strElementTreeEncoding) # type=W (waypoint) ou T (trackpoint)
 
 # ---------------------------------------------------------------------------------------------- 
 # lance la procedure principale
 if __name__ == "__main__":
     main("AIXM_X_IFR_FR.gpx")
-
 
