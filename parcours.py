@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-SCRIPT_VERSION=20210422.1907
+SCRIPT_VERSION=20210422.2027
 SCRIPT_AUTHOR="fdz, ctesc356"
 # Le script accepte les paramètres optionnels de ligne de commande suivants:
 #  -i fileName  : pour changer de fichier source (base de données de référence)
@@ -92,8 +92,8 @@ def XmlToPoint(strXML,strType):
       #print(nodeXML.tag,nodeXML.attrib)
       pt=GPoint()
       pt.type=strType
-      pt.lat=nodeXML.get('lat')
-      pt.lon=nodeXML.get('lon')
+      if nodeXML.get('lat') != None: pt.lat=nodeXML.get('lat')
+      if nodeXML.get('lon') != None: pt.lon=nodeXML.get('lon')
 
       # noeud enfant:
       #print(nodeXML[1].text) 
