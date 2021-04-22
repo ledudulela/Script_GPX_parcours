@@ -1,17 +1,16 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-SCRIPT_VERSION=20210421.1738
+SCRIPT_VERSION=20210422.1907
 SCRIPT_AUTHOR="fdz, ctesc356"
 # Le script accepte les paramètres optionnels de ligne de commande suivants:
-#  -i fileName  (pour changer de fichier source (base de données de référence))
-#  -w           (pour exports en waypoints)
-#  -t           (pour exports en trackpoints)
-#  -v           (pour connaitre la version du script)
+#  -i fileName  : pour changer de fichier source (base de données de référence)
+#  -w           : pour exports en waypoints
+#  -t           : pour exports en trackpoints
+#  -v           : pour connaitre la version du script
+#  -d           : pour concaténer les fichiers CSV (données FGFS) en un seul fichier de données (.dat) au format GPX
 #
 # What's new in this version:
-#  - Contrôles du fichier source
-#  - Fichier .dat en source possible (format de données gpx)
-#  - Nouvelle fonction (expérimentale) de concaténation de fichiers CSV en un seul fichier de données (.dat) au format GPX
+#  - Nouvelle fonction de concaténation de fichiers CSV provenant de FGFS en un seul fichier de données (.dat) au format GPX
 #
 # Infos:
 # Si le fichier source a une extension .gpx, il sera dans un premier temps analysé et converti dans un fichier .dat .
@@ -93,8 +92,8 @@ def XmlToPoint(strXML,strType):
       #print(nodeXML.tag,nodeXML.attrib)
       pt=GPoint()
       pt.type=strType
-      if nodeXML.get('lat') != None: pt.lat=nodeXML.get('lat')
-      if nodeXML.get('lon') != None: pt.lon=nodeXML.get('lon')
+      pt.lat=nodeXML.get('lat')
+      pt.lon=nodeXML.get('lon')
 
       # noeud enfant:
       #print(nodeXML[1].text) 
@@ -267,7 +266,11 @@ def chercheWaypointDansGpxEtExporte(strGpxInputFileName,strTypePt="W",strElement
 # ----------------------------------------------------------------------------------------------   
 # concatène des fichiers CSV en un gros fichier de données (.dat) au format GPX; ce fichier peut être très volumineux
 def concatCsvFileToGpxFile():
-   arrFileList=["FGFS_DATA_APT","FGFS_DATA_DME-ILS","FGFS_DATA_FIXES","FGFS_DATA_NDB","FGFS_DATA_VOR-DME"] # FGFS_DATA_ILS-CAT
+   # Liste de fichiers créés à partir d'extractions de données du fichier FGFS_DATA.ods
+   arrFileList=["FGFS_DATA_APT","FGFS_DATA_ILS-CAT","FGFS_DATA_DME-ILS","FGFS_DATA_FIXES","FGFS_DATA_NDB","FGFS_DATA_VOR-DME","FGFS_DATA_ILS"]
+   # Le fichier "FGFS_DATA_ILS.csv" est créé à mla volée dans cette fonction. 
+   # Il contient la liste des ILS provenant des fichiers ILS-CAT complétée par les DME-ILS et à laquelle on retire les doublons.
+   # Il sera intégré au fichier GPX final.
 
    fileName=sys.argv[0]
    arrFileRootExt=os.path.splitext(fileName)
@@ -275,58 +278,123 @@ def concatCsvFileToGpxFile():
    objFicGpx=open(strFicGpx, "w") # raz fichier
    objFicGpx=open(strFicGpx, "a")
 
+   # pour les ILS, sans doublon, dans un seul fichier CSV 
+   strFicCsvILS="FGFS_DATA_ILS.csv"
+   objFicCsvILS=open(strFicCsvILS, "w") # raz fichier
+   objFicCsvILS=open(strFicCsvILS, "a")
+   strFicCsvILS="lat,lon,sym,name" # entêtes
+
    objFicGpx.write('﻿<?xml version="1.0" encoding="UTF-8"?>'+"\n")
    objFicGpx.write('<gpx version="1.0" creator="' + fileName  +' - '+ str(date.today()) +'" xmlns="http://www.topografix.com/GPX/1/0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/0/gpx.xsd">'+"\n")
 
    for fileName in arrFileList:
-      fileName=fileName+".csv"
-      objFicCsv = open(fileName, "r")
-      arrCsvFileLines=objFicCsv.readlines()   # charge le fichier texte
-      objFicCsv.close()   
-      print(fileName)
+      
+      if fileName=="FGFS_DATA_ILS": # finalise la création de ce fichier
+         objFicCsvILS.write(strFicCsvILS)
+         objFicCsvILS.close()
 
-      i=0
-      c=0
-      colLat=-1
-      colLon=-1
-      colName=-1
-      colSym=-1
-      colEle=-1
-      strLat=""
-      strLon=""
-      strName=""
-      strSym=""
-      strEle=""
-      for txt in arrCsvFileLines: # boucle sur chaque ligne du fichier texte
-         i=i+1
-         txt=txt.rstrip("\n") # suppression des lf
-         txt=txt.rstrip()
-         if len(txt)>0:
-            txt=txt.replace(", ","||")
-            txt=txt.replace("&","+")
-            arrValues=txt.split(",") # format CSV attendu: lat,lon,sym,name(,ele)
-            if i==1:
-               for col in arrValues:
-                  if col=="lat" or col=="latitude": colLat=c
-                  if col=="lon" or col=="longitude": colLon=c
-                  if col=="name": colName=c
-                  if col=="sym": colSym=c
-                  if col=="ele" or col=="alt-ft" or col=="alt-m": colEle=c
-                  c=c+1
-            else:
-               if colLat!=-1: strLat="lat=\""+arrValues[colLat]+"\""
-               if colLon!=-1: strLon="lon=\""+arrValues[colLon]+"\""
-               if colName!=-1: strName="<name>"+arrValues[colName]+"</name>"
-               if colSym!=-1: 
-                  strSym=arrValues[colSym].replace("||",", ")
-                  strSym="<sym>"+strSym.replace("\"","")+"</sym>"
-               if colEle!=-1:strEle="<ele>"+arrValues[colEle]+"</ele>"
+      fileCSV=fileName+".csv"
+      if os.path.exists(fileCSV):
+         objFicCsv = open(fileCSV, "r")
+         arrCsvFileLines=objFicCsv.readlines()   # charge le fichier texte
+         objFicCsv.close()
+         print(fileName)
 
-               strGpxLine="<wpt "+strLat+" "+strLon+">" + strSym + strName + strEle + "</wpt>"+"\n"
-               objFicGpx.write(strGpxLine)
+         i=0
+         c=0
+         colLat=-1
+         colLon=-1
+         colName=-1
+         colSym=-1
+         colEle=-1
+
+         for txt in arrCsvFileLines: # boucle sur chaque ligne du fichier texte
+            strLat=""
+            strLon=""
+            strName=""
+            strSym=""
+            strEle=""
+
+            strGpxLat=""
+            strGpxLon=""
+            strGpxName=""
+            strGpxSym=""
+            strGpxEle=""
+
+            strIdentifiant=""
+ 
+            i=i+1
+            txt=txt.rstrip("\n") # suppression des lf
+            txt=txt.rstrip()
+            if len(txt)>0:
+               txt=txt.replace(", ","||")
+               txt=txt.replace("&","+")
+               arrValues=txt.split(",") # format CSV attendu: lat,lon,sym,name(,ele)
+               if i==1:
+                  for col in arrValues:
+                     if col=="lat" or col=="latitude": colLat=c
+                     if col=="lon" or col=="longitude": colLon=c
+                     if col=="name": colName=c
+                     if col=="sym": colSym=c
+                     if col=="ele" or col=="alt-ft" or col=="alt-m": colEle=c
+                     c=c+1
+               else:
+                  strILSIdentifiant=""
+
+                  if colLat!=-1:
+                     strLat=arrValues[colLat]
+                     strGpxLat="lat=\""+strLat+"\""
+
+                  if colLon!=-1: 
+                     strLon=arrValues[colLon]
+                     strGpxLon="lon=\""+strLon+"\""
+
+                  if colName!=-1: 
+                     strName=arrValues[colName]
+                     strGpxName="<name>"+strName+"</name>"
+
+                     # pour la suppression de doublons des ILS, crée un identifiant unique
+                     strIdentifiant=strName
+                     p=strIdentifiant.find("]")
+                     if p>0: 
+                        strIdentifiant=strIdentifiant[0:p+1]
+                        arrIdentifiant=strIdentifiant.split(' ')
+                        p=len(arrIdentifiant)
+                        if p>1: strIdentifiant=arrIdentifiant[0]+" "+arrIdentifiant[1] +" "+arrIdentifiant[p-1]
+
+                  if colSym!=-1: 
+                     strSym=arrValues[colSym]
+                     strSym=strSym.replace("||",", ") # pour les symboles à virgule
+                     strGpxSym="<sym>"+strSym.replace("\"","")+"</sym>" # retrait des double-quotes
+
+                  if colEle!=-1:
+                     strEle=arrValues[colEle]
+                     strGpxEle="<ele>"+strEle+"</ele>"
+
+                  # suppression de doublons des ILS
+                  if fileName=="FGFS_DATA_DME-ILS" or fileName=="FGFS_DATA_ILS-CAT":
+                     p=strFicCsvILS.find(strIdentifiant) # cherche l identifiant dans le contenu CSV des ILS
+                     if not p>0: # si l'identifiant n'existe pas, ajoute la ligne au contenu CSV des ILS
+                        strSym='"Pin, Red"' # unifie la couleur; mettre la ligne en commentaire pour deboguer
+                        strFicCsvILS=strFicCsvILS+"\n"+ strLat+","+strLon+","+strSym+","+strIdentifiant
+                     #else:
+                     #   print("DEBUG",strIdentifiant," existe déjà")
+
+                  else: 
+                     strGpxLine="<wpt "+strGpxLat+" "+strGpxLon+">" + strGpxSym + strGpxName + strGpxEle + "</wpt>"+"\n"
+                     objFicGpx.write(strGpxLine)
+
+                  # fin du if fileName ILS*
+  
+         # fin du for txt in arrFileList
+
+      # fin du if file exists
+
+   # fin du for fileName in arrCsvFileLines
 
    objFicGpx.write("</gpx>")
    objFicGpx.close()
+
 
 # ----------------------------------------------------------------------------------------------   
 # fonction de test pour parser du XML au format GPX
