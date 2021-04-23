@@ -1,27 +1,32 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-SCRIPT_VERSION=20210422.2027
+SCRIPT_VERSION=20210423.1620
 SCRIPT_AUTHOR="fdz, ctesc356"
+# Le script recherche dans la base de données (format GPX) les points spécifiés dans le fichier .txt 
+# Le résultat de la recherche est stockée  sous forme de fichiers .csv et .gpx ( expérimental: .xml pour route manager FGFS )
 # Le script accepte les paramètres optionnels de ligne de commande suivants:
-#  -i fileName  : pour changer de fichier source (base de données de référence)
+#  -v           : pour connaitre la version du script
+#  -i fileName  : pour spécifier le fichier source (base de données de référence à la recherche)
 #  -w           : pour exports en waypoints
 #  -t           : pour exports en trackpoints
-#  -v           : pour connaitre la version du script
+#  -c fileName  : pour convertir un fichier GPX en fichier CSV ( option -w ou -t possible avant -c )
 #  -d           : pour concaténer les fichiers CSV (données FGFS) en un seul fichier de données (.dat) au format GPX
 #
 # What's new in this version:
-#  - Nouvelle fonction de concaténation de fichiers CSV provenant de FGFS en un seul fichier de données (.dat) au format GPX
+#  - Nouvelle fonction de conversion de fichier GPX en fichier CSV avec l'option -c ( option -w ou -t possible avant -c )
+#  - L'option -d génère, en plus du fichier .dat , un fichier RNAV.csv concatenant NDB, VOR-DME et ILS
 #
-# Infos:
+# Infos pratiques:
+# Le fichier .txt (contenant les points à rechercher) doit avoir le même nom que le script. Ex: parcours.py -> parcours.txt
 # Si le fichier source a une extension .gpx, il sera dans un premier temps analysé et converti dans un fichier .dat .
-# Si le fichier source a une extension .dat, il ne sera pas analysé.
+# Si le fichier source a une extension .dat, il ne sera pas analysé (exécution plus rapide; à utiliser uniquement si le fichier .dat est fiable(*) ).
 # Dans les deux cas, le fichier .dat servira de fichier source à la fonction de recherche.
-# Ce fichier .dat doit contenir des données au format gpx avec une ligne par waypoint, sans tabulation, sans quoi le script génèrera des erreurs.
-# La fonction de recherche de waypoints nécessite ce formalisme pour rendre son exécution la rapide possible.
+# (*) Ce fichier .dat doit contenir des données au format gpx avec une ligne par waypoint, sans tabulation, sans quoi le script génèrera des erreurs.
+# La fonction de recherche de points nécessite ce formalisme pour rendre son exécution la rapide possible.
 # Si le paramètre -i n'est pas spécifié, et qu'un fichier .dat ayant le même nom que le script est présent dans le répertoire, 
 # alors ce fichier .dat servira par défaut de fichier source (si le fichier AIXM du tutoriel n'est pas également présent).
 # Dans le fichier texte, les waypoints avec fréquence doivent être saisis avec leur fréquence pour éviter les doublons dans le résultat de la recherche.
-# Attention au dernier 0 non significatif de la fréquence (le formalisme doit correspondre à celui du fichier source)
+# Attention au dernier 0 non significatif de la fréquence (le formatage doit correspondre à celui du fichier source)
 #
 import os.path
 import sys
@@ -265,12 +270,15 @@ def chercheWaypointDansGpxEtExporte(strGpxInputFileName,strTypePt="W",strElement
 
 # ----------------------------------------------------------------------------------------------   
 # concatène des fichiers CSV en un gros fichier de données (.dat) au format GPX; ce fichier peut être très volumineux
-def concatCsvFileToGpxFile():
+def concatCsvFilesToGpxDb(strFilePrefix):
+   boolFileNotFound=False  # True si au moins un fichier csv n'a pas été trouvé
+   
    # Liste de fichiers créés à partir d'extractions de données du fichier FGFS_DATA.ods
-   arrFileList=["FGFS_DATA_APT","FGFS_DATA_ILS-CAT","FGFS_DATA_DME-ILS","FGFS_DATA_FIXES","FGFS_DATA_NDB","FGFS_DATA_VOR-DME","FGFS_DATA_ILS"]
+   arrFileList=["APT","ILS-CAT","DME-ILS","FIXES","NDB","VOR-DME","ILS"]
    # Le fichier "FGFS_DATA_ILS.csv" est créé à mla volée dans cette fonction. 
    # Il contient la liste des ILS provenant des fichiers ILS-CAT complétée par les DME-ILS et à laquelle on retire les doublons.
    # Il sera intégré au fichier GPX final.
+   strCsvEntetes="lat,lon,sym,name"
 
    fileName=sys.argv[0]
    arrFileRootExt=os.path.splitext(fileName)
@@ -279,26 +287,33 @@ def concatCsvFileToGpxFile():
    objFicGpx=open(strFicGpx, "a")
 
    # pour les ILS, sans doublon, dans un seul fichier CSV 
-   strFicCsvILS="FGFS_DATA_ILS.csv"
+   strFicCsvILS=strFilePrefix+"ILS"+".csv"
    objFicCsvILS=open(strFicCsvILS, "w") # raz fichier
    objFicCsvILS=open(strFicCsvILS, "a")
-   strFicCsvILS="lat,lon,sym,name" # entêtes
+   strFicCsvILS=strCsvEntetes # entêtes
+   
+   # concatène NDB, VOR-DME et ILS dans un seul fichier CSV (pour une utilisation RNAV plus user-friendly)
+   strFicCsvRNAV=strFilePrefix+"RNAV"+".csv"
+   objFicCsvRNAV=open(strFicCsvRNAV, "w") # raz fichier
+   objFicCsvRNAV=open(strFicCsvRNAV, "a")
+   objFicCsvRNAV.write(strCsvEntetes) # entêtes   
 
    objFicGpx.write('﻿<?xml version="1.0" encoding="UTF-8"?>'+"\n")
    objFicGpx.write('<gpx version="1.0" creator="' + fileName  +' - '+ str(date.today()) +'" xmlns="http://www.topografix.com/GPX/1/0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/0/gpx.xsd">'+"\n")
 
    for fileName in arrFileList:
       
-      if fileName=="FGFS_DATA_ILS": # finalise la création de ce fichier
+      if fileName=="ILS": # finalise la création de ce fichier
          objFicCsvILS.write(strFicCsvILS)
          objFicCsvILS.close()
+         if not boolFileNotFound: print(fileName,"done")
 
-      fileCSV=fileName+".csv"
+      fileCSV=strFilePrefix+fileName+".csv"
       if os.path.exists(fileCSV):
          objFicCsv = open(fileCSV, "r")
          arrCsvFileLines=objFicCsv.readlines()   # charge le fichier texte
          objFicCsv.close()
-         print(fileName)
+         if not boolFileNotFound: print(fileName,"found,")
 
          i=0
          c=0
@@ -372,7 +387,7 @@ def concatCsvFileToGpxFile():
                      strGpxEle="<ele>"+strEle+"</ele>"
 
                   # suppression de doublons des ILS
-                  if fileName=="FGFS_DATA_DME-ILS" or fileName=="FGFS_DATA_ILS-CAT":
+                  if fileName=="DME-ILS" or fileName=="ILS-CAT":
                      p=strFicCsvILS.find(strIdentifiant) # cherche l identifiant dans le contenu CSV des ILS
                      if not p>0: # si l'identifiant n'existe pas, ajoute la ligne au contenu CSV des ILS
                         strSym='"Pin, Red"' # unifie la couleur; mettre la ligne en commentaire pour deboguer
@@ -381,20 +396,69 @@ def concatCsvFileToGpxFile():
                      #   print("DEBUG",strIdentifiant," existe déjà")
 
                   else: 
+                     # ecriture dans le fichier GPX
                      strGpxLine="<wpt "+strGpxLat+" "+strGpxLon+">" + strGpxSym + strGpxName + strGpxEle + "</wpt>"+"\n"
                      objFicGpx.write(strGpxLine)
+
+                     # ecriture dans le fichier RNAV.CSV
+                     if fileName=="NDB" or fileName=="VOR-DME" or fileName=="ILS":
+                        objFicCsvRNAV.write("\r"+strLat+","+strLon+","+strSym+","+strName)
 
                   # fin du if fileName ILS*
   
          # fin du for txt in arrFileList
-
+      else:
+         print(fileCSV,"not found.")
+         boolFileNotFound=True # au moins un fichier n'a pas été trouvé
       # fin du if file exists
 
    # fin du for fileName in arrCsvFileLines
 
+
    objFicGpx.write("</gpx>")
    objFicGpx.close()
+ 
+   objFicCsvRNAV.close()
 
+   if not boolFileNotFound:
+      print(strFicCsvRNAV,"done")
+      print(strFicGpx,"done")
+
+# ----------------------------------------------------------------------------------------------   
+# fonction de conversion de GPX vers CSV
+def convertGpxFileToCsvFile(strFileName,strPtType,strElementTreeEncoding):
+
+   if os.path.exists(strFileName):
+      strFileCsv=strFileName+".csv"
+      objFicCsv=open(strFileCsv, "w") # raz fichier
+      objFicCsv=open(strFileCsv, "a")
+      objFicCsv.write("lat,lon,sym,name")
+
+      # waypoint <wpt> ou trackpoint <trk><trkseg><trkpt>
+      xmlContent=xmlDom.parse(strFileName)
+      xmlRoot=xmlContent.getroot()
+      strNamespace={'ns0':'http://www.topografix.com/GPX/1/0'}
+
+      xmlTrackpoint=xmlRoot.find('ns0:trk',strNamespace)
+      if xmlTrackpoint!=None:
+         xmlWaypoints=xmlTrackpoint.findall('ns0:trkseg/ns0:trkpt',strNamespace)
+      else:
+         xmlWaypoints=xmlRoot.findall('ns0:wpt',strNamespace)
+
+      for xmlWaypoint in xmlWaypoints:
+         strElementTreeEncoding="unicode"
+         strXml=xmlDom.tostring(xmlWaypoint,encoding=strElementTreeEncoding,method="xml")
+         pt=XmlToPoint(strXml,strPtType)
+         objFicCsv.write("\r"+pt.toCsv())
+
+      objFicCsv.close()  
+
+      strPtLibType="Waypoint"
+      if strPtType=="T": strPtLibType="Trackpoint"
+      print(len(xmlWaypoints),strPtLibType + "s in/to",strFileCsv)
+  
+   else:
+      print(strFileName,"not found.")
 
 # ----------------------------------------------------------------------------------------------   
 # fonction de test pour parser du XML au format GPX
@@ -402,7 +466,7 @@ def parseGPX():
    xmlContent=xmlDom.parse("AIXM_X_IFR_FR.gpx")
    xmlRoot=xmlContent.getroot()
    strNamespace={'ns0':'http://www.topografix.com/GPX/1/0'}
-   xmlWaypoints=xmlRoot.findall('ns0:wpt')
+   xmlWaypoints=xmlRoot.findall('ns0:wpt',strNamespace)
    print(len(xmlWaypoints))
    i=0
    for xmlWaypoint in xmlWaypoints:
@@ -417,7 +481,7 @@ def parseGPX():
 # fonction principale récupérant les paramètres de ligne de commande
 def main(strFileName,strType="W"):
    try:                                
-      opts, args = getopt.getopt(sys.argv[1:], "i:twvd") # ["input", "trackpoint", "waypoint"]
+      opts, args = getopt.getopt(sys.argv[1:], "i:c:twvd") # ["input", "trackpoint", "waypoint"]
 
    except getopt.GetoptError:
       print("Parametre(s) non valide(s).")
@@ -428,19 +492,21 @@ def main(strFileName,strType="W"):
       #print(opt)
       if opt == "-t": strType="T"
       if opt == "-w": strType="W"
-      if opt == "-i": 
+      if opt == "-i" or opt == "-c": 
          strFileName=arg
 
    #print(sys.argv[0],sys.argv[1:])
    #print(strType,strFileName)
    strElementTreeEncoding="unicode"
    if sys.version_info.major<3: strElementTreeEncoding="UTF-8"
-   if opt == "-v":
+   if opt == "-v": # pour afficher la version du script
       print("version:",SCRIPT_VERSION)
    else:
-      if opt == "-d":
-         concatCsvFileToGpxFile()
-      else:
+      if opt == "-d": # pour générer la base de données de référence à partir d'une liste de fichiers CSV connus
+         concatCsvFilesToGpxDb(strFilePrefix="FGFS_DATA_")
+      elif opt == "-c": # pour convertir un fichier CSV en un fichier GPX
+         convertGpxFileToCsvFile(strFileName,strType,strElementTreeEncoding)
+      else: # pour rechercher des points dans la bdd (fonction principale du script)
          chercheWaypointDansGpxEtExporte(strFileName,strType,strElementTreeEncoding) # type=W (waypoint) ou T (trackpoint)
 
 # ---------------------------------------------------------------------------------------------- 
