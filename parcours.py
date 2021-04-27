@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-SCRIPT_VERSION=20210424.1101
+SCRIPT_VERSION=20210427.1845
 SCRIPT_AUTHOR="fdz, ctesc356"
 # Le script recherche dans la base de données (format GPX) les points spécifiés dans le fichier .txt 
 # Le résultat de la recherche est stockée  sous forme de fichiers .csv et .gpx ( expérimental: .xml pour route manager FGFS )
@@ -14,8 +14,7 @@ SCRIPT_AUTHOR="fdz, ctesc356"
 #  -d           : pour concaténer les fichiers CSV (données FGFS) en un seul fichier de données (.dat) au format GPX
 #
 # What's new in this version:
-#  - Nouvelle fonction d'extraction des données d'un fichier GPX en fonction de coordonnées géographiques et de types de points
-#  - Correction d'une erreur dans la fonction de conversion de fichier GPX en fichier CSV
+#  - Adaptation pour une utilisation avec le script d'interface graphique (tkinter)
 #  - Améliorations mineures du code
 #
 # Infos pratiques:
@@ -41,8 +40,21 @@ from xml.etree import ElementTree as xmlDom
 # constantes et variables globales
 GPXNAMESPACE='http://www.topografix.com/GPX/1/0'
 gkvNamespace={'ns0':GPXNAMESPACE}
-XMLHEADER='﻿<?xml version="1.0" encoding="UTF-8"?>'
+XMLHEADER='<?xml version="1.0" encoding="UTF-8"?>'
 GPXROOTNODE='<gpx version="1.0" creator="%s" xmlns="'+GPXNAMESPACE+'" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="'+GPXNAMESPACE+'/gpx.xsd">' # l'attribut "creator" est une chaine à contenu variable "%s"
+
+# ----------------------------------------------------------------------------------------------------------
+def scriptBaseName():
+   return sys.argv[0].replace("_ui","")
+
+def xmlEltTreeEncoding():
+    strElementTreeEncoding="unicode" 
+    if sys.version_info.major<3: strElementTreeEncoding="UTF-8"
+    return strElementTreeEncoding
+
+def remove_non_ascii(text):
+    return ''.join([i if ord(i) < 128 else '_' for i in text])
+
 # ----------------------------------------------------------------------------------------------------------
 class GPoint:
    "Définition d'un point géographique"
@@ -115,8 +127,8 @@ def XmlToPoint(strXML,strType):
       #print(nodeXML[1].text) 
 
       if nodeXML.find('name') != None:
-         if nodeXML.find('name').text != None: 
-            pt.name=nodeXML.find('name').text
+         if nodeXML.find('name').text != None:
+            pt.name=remove_non_ascii(nodeXML.find('name').text)
 
       if nodeXML.find('sym') != None:
          if nodeXML.find('sym').text != None: 
@@ -131,16 +143,19 @@ def XmlToPoint(strXML,strType):
       return None
 
 # ----------------------------------------------------------------------------------------------------------
-def chercheWaypointDansGpxEtExporte(strGpxInputFileName,strTypePt="W",strElementTreeEncoding="unicode"):
-   fileName=sys.argv[0]
+def chercheWaypointDansGpxEtExporte(strGpxInputFileName,strTypePt="W",strTxtInputFileName="",strElementTreeEncoding="unicode"):
+   fileName=scriptBaseName()
    arrFileRootExt=os.path.splitext(fileName)
    fileName=arrFileRootExt[0] # fileName.replace(arrFileRootExt[1],"")
    fichierTxt=fileName+".txt"
+   fichierLog=fileName+".log"
    fichierGpx=fileName+".gpx"
    fichierCsv=fileName+".csv"
    fichierXml=fileName+".xml"
    fichierTmp=fileName+".dat"
+   if strTxtInputFileName!="": fichierTxt=strTxtInputFileName
 
+   #print(strGpxInputFileName,fichierTxt)
    if os.path.exists(strGpxInputFileName) and os.path.exists(fichierTxt):
       print("In progress...")
       arrFileRootExt=os.path.splitext(strGpxInputFileName)
@@ -153,7 +168,7 @@ def chercheWaypointDansGpxEtExporte(strGpxInputFileName,strTypePt="W",strElement
          objFicTmp=open(fichierTmp, "a")
 
          objFicTmp.write(XMLHEADER+"\n")
-         objFicTmp.write(GPXROOTNODE%sys.argv[0]+"\n")
+         objFicTmp.write(GPXROOTNODE%scriptBaseName()+"\n")
 
          xmlContent=xmlDom.parse(strGpxInputFileName)
          xmlRoot=xmlContent.getroot()
@@ -184,14 +199,30 @@ def chercheWaypointDansGpxEtExporte(strGpxInputFileName,strTypePt="W",strElement
       arrTxtFileLines=objFicTxt.readlines()   # charge le fichier texte
       objFicTxt.close()
 
+      strTS=datetime.now()
+      objFicLog=open(fichierLog, "w")    # raz fichier Log cible
+      objFicLog=open(fichierLog, "a") 
+      objFicLog.write(strTS.strftime("%Y%m%d%H%M%S"))  # 
+      objFicLog.write("\n")
+
       objFicGpx=open(fichierGpx, "w")    # raz fichier Gpx cible
       objFicGpx=open(fichierGpx, "a")
+      objFicGpx.write(XMLHEADER+"\n")
+      objFicGpx.write(GPXROOTNODE%scriptBaseName()+"\n")
+
+      if strTypePt=="T":
+         objFicGpx.write("<trk><trkseg>")  # écriture noeuds
+         objFicGpx.write("\n")
       
       objFicCsv=open(fichierCsv, "w")    # raz fichier Csv cible
       objFicCsv=open(fichierCsv, "a") 
+      objFicCsv.write("type,latitude,longitude,sym,name")  # écriture des entêtes
+      objFicCsv.write("\n")
    
       objFicXml=open(fichierXml, "w")    # raz fichier Xml cible
       objFicXml=open(fichierXml, "a") 
+      objFicXml.write(XMLHEADER+"<PropertyList><route>")  # écriture entête et noeud racine
+      objFicXml.write("\n")
    
       i=0
       r=0
@@ -224,23 +255,7 @@ def chercheWaypointDansGpxEtExporte(strGpxInputFileName,strTypePt="W",strElement
          for strXmlLine in arrGpxInputFileLines: # pour chaque ligne du fichier GPX
             l=l+1
             strXmlLine=strXmlLine.rstrip("\n")
-            if i < 2:
-               objFicGpx.write(strXmlLine)  # recopie des 2 lignes entête GPX
-               objFicGpx.write("\n")
-               i=i+1
-
-               if i==2: 
-                  objFicCsv.write("type,latitude,longitude,sym,name")  # écriture des entêtes
-                  objFicCsv.write("\n")
-
-                  objFicXml.write(XMLHEADER+"<PropertyList><route>")  # écriture entête et noeud racine
-                  objFicXml.write("\n")
-
-                  if strTypePt=="T":
-                     objFicGpx.write("<trk><trkseg>")  # écriture noeuds
-                     objFicGpx.write("\n")
-
-            elif (xName in strXmlLine) or (xAp in strXmlLine and xSymAp in strXmlLine) or (xIls in strXmlLine and xSymIls in strXmlLine):
+            if (xName in strXmlLine) or (xAp in strXmlLine and xSymAp in strXmlLine) or (xIls in strXmlLine and xSymIls in strXmlLine):
                pt=XmlToPoint(strXmlLine,strTypePt)
                if pt != None: 
                   boolTrouve=True
@@ -261,7 +276,10 @@ def chercheWaypointDansGpxEtExporte(strGpxInputFileName,strTypePt="W",strElement
                   t=t+1
                # pas de break, pour ne pas s'arreter à la première valeur trouvée
          # fin du for txt
-         if not boolTrouve: print("   not found.")
+         if not boolTrouve: 
+            strLog=" not found."
+            objFicLog.write(txt+strLog+"\n") 
+            print("  "+strLog)
 
       if strTypePt=="T":
          objFicGpx.write("</trkseg></trk>")  # écriture fermeture noeuds
@@ -273,8 +291,11 @@ def chercheWaypointDansGpxEtExporte(strGpxInputFileName,strTypePt="W",strElement
       objFicXml.close()
 
       objFicCsv.close()
-   
-      print("End: "+str(t)+"/"+str(r)+" waypoints.")
+
+      strLog="End: "+str(t)+"/"+str(r)+" waypoints."
+      objFicLog.write(strLog)
+      objFicLog.close()
+      print(strLog)
 
    else:
       print("Input-File(s) not found.")
@@ -291,7 +312,7 @@ def concatCsvFilesToGpxDb(strFilePrefix):
    # Il sera intégré au fichier GPX final.
    strCsvEntetes="lat,lon,sym,name"
 
-   fileName=sys.argv[0]
+   fileName=scriptBaseName()
    arrFileRootExt=os.path.splitext(fileName)
    strFicGpx=arrFileRootExt[0]+".dat" # fileName.replace(arrFileRootExt[1],".dat") 
    objFicGpx=open(strFicGpx, "w") # raz fichier
@@ -424,7 +445,7 @@ def concatCsvFilesToGpxDb(strFilePrefix):
 # ----------------------------------------------------------------------------------------------   
 # fonction de conversion de GPX vers CSV
 def convertGpxFileToCsvFile(strFileName,strPtType,strElementTreeEncoding):
-
+   strReturn=""
    if os.path.exists(strFileName):
       strFileCsv=strFileName+".csv"
       objFicCsv=open(strFileCsv, "w") # raz fichier
@@ -442,12 +463,12 @@ def convertGpxFileToCsvFile(strFileName,strPtType,strElementTreeEncoding):
          xmlWaypoints=xmlRoot.findall('ns0:wpt',gkvNamespace)
 
       for xmlWaypoint in xmlWaypoints:
-         #strElementTreeEncoding="unicode"
          strXml=xmlDom.tostring(xmlWaypoint,encoding=strElementTreeEncoding,method="xml")
          pt=XmlToPoint(strXml,strPtType)
-         objFicCsv.write("\r"+pt.toCsv())
+         objFicCsv.write("\n"+pt.toCsv())
 
       objFicCsv.close()  
+      strReturn=strFileCsv
 
       strPtLibType="Waypoint"
       if strPtType=="T": strPtLibType="Trackpoint"
@@ -456,13 +477,15 @@ def convertGpxFileToCsvFile(strFileName,strPtType,strElementTreeEncoding):
    else:
       print(strFileName,"not found.")
 
+   return strReturn
 # ---------------------------------------------------------------------------------------------- 
 # extraire de données
 def extractFromGpxFile(strFileName,strElementTreeEncoding):
-   fileName=sys.argv[0]
+   strReturn=""
+   fileName=scriptBaseName()
    arrFileRootExt=os.path.splitext(fileName)
    strConfigFile=arrFileRootExt[0]+".cfg"
-   #print(strConfigFile)
+   #print(strConfigFile,strElementTreeEncoding)
    boolExtractParameters=False
    floatLatMin=-90.0
    floatLatMax=90.0
@@ -535,7 +558,7 @@ def extractFromGpxFile(strFileName,strElementTreeEncoding):
          print("Extracting...") 
 
          strZone="lat["+str(floatLatMin)+","+str(floatLatMax)+"] ; lon["+str(floatLonMin)+","+str(floatLonMax)+"]"
-         objFicGpx.write("\r"+"<metadata><desc>"+strZone+"</desc></metadata>")
+         objFicGpx.write("\n"+"<metadata><desc>"+strZone+"</desc></metadata>")
                   
          xmlContent=xmlDom.parse(strFileName)
          xmlRoot=xmlContent.getroot()
@@ -544,7 +567,6 @@ def extractFromGpxFile(strFileName,strElementTreeEncoding):
          p=0
          i=0
          for xmlWaypoint in xmlWaypoints:
-            #strElementTreeEncoding="unicode"
             strXml=xmlDom.tostring(xmlWaypoint,encoding=strElementTreeEncoding,method="xml")
             pt=XmlToPoint(strXml,"W")
             p=p+1
@@ -552,22 +574,46 @@ def extractFromGpxFile(strFileName,strElementTreeEncoding):
                if pt.sym not in arrSymBlackList:
                   i=i+1
                   print(str(int(p/n*100))+"%", pt.toCsv())
-                  objFicGpx.write("\r"+pt.toGpx())
+                  objFicGpx.write("\n"+pt.toGpx())
                   if pt.sym not in arrSymWhiteList: arrSymWhiteList.append(pt.sym)
 
-         objFicGpx.write("\r"+"</gpx>")
+         objFicGpx.write("\n"+"</gpx>")
          objFicGpx.close()
          if not boolExtractParameters: print("No extract parameters found.")
          print("Zone:",strZone)
          if len(arrSymBlackList)>0 and len(arrSymWhiteList)>0: print("Sym:",arrSymWhiteList)
          print(i,"elements in/to",strFicGpx)
- 
+         strReturn=strFicGpx
       else:
          print("0.0 values or input-file not found.") 
 
    else:
       print(strConfigFile," not found.")
 
+   return strReturn
+
+def getDefaultConfigContent():
+   strContent=XMLHEADER+"\n"
+   strContent=strContent+'<config>'+"\n"
+   strContent=strContent+'   <extract>'+"\n"
+   strContent=strContent+'      <zone>'+"\n"
+   strContent=strContent+'         <lat_min>-90.0</lat_min>'+"\n"
+   strContent=strContent+'         <lat_max>90.0</lat_max>'+"\n"
+   strContent=strContent+'         <lon_min>-180.0</lon_min>'+"\n"
+   strContent=strContent+'         <lon_max>180.0</lon_max>'+"\n"
+   strContent=strContent+'      </zone>'+"\n"
+   strContent=strContent+'      <types_pt>'+"\n"
+   strContent=strContent+'         <type_pt type="Airport" sym="Airport">yes</type_pt>'+"\n"
+   strContent=strContent+'         <type_pt type="VOR-DME" sym="Navaid, Green">yes</type_pt>'+"\n"
+   strContent=strContent+'         <type_pt type="NDB" sym="Navaid, Black">yes</type_pt>'+"\n"
+   strContent=strContent+'         <type_pt type="ILS" sym="Pin, Red">yes</type_pt>'+"\n"
+   strContent=strContent+'         <type_pt type="FixeA" sym="Triangle, Green">yes</type_pt>'+"\n"
+   strContent=strContent+'         <type_pt type="FixeN" sym="Triangle, Blue">no</type_pt>'+"\n"
+   strContent=strContent+'         <type_pt type="FixeO" sym="Triangle, Red">no</type_pt>'+"\n"
+   strContent=strContent+'      </types_pt>'+"\n"
+   strContent=strContent+'   </extract>'+"\n"
+   strContent=strContent+'</config>'+"\n"
+   return strContent
 # ----------------------------------------------------------------------------------------------   
 # fonction de test pour parser du XML au format GPX
 def parseGPX():
@@ -587,7 +633,7 @@ def parseGPX():
 
 # ---------------------------------------------------------------------------------------------- 
 # fonction principale récupérant les paramètres de ligne de commande
-def main(strFileName,strType="W"):
+def main(strFileName,strType="W",strTxtInputFileName=""):
    try:                                
       opts, args = getopt.getopt(sys.argv[1:], "i:c:x:twvd") # ["input", "trackpoint", "waypoint"]
 
@@ -605,8 +651,8 @@ def main(strFileName,strType="W"):
 
    #print(sys.argv[0],sys.argv[1:])
    #print(strType,strFileName)
-   strElementTreeEncoding="unicode"
-   if sys.version_info.major<3: strElementTreeEncoding="UTF-8"
+   strElementTreeEncoding=xmlEltTreeEncoding()
+
    if opt == "-v": # pour afficher la version du script
       print("version:",SCRIPT_VERSION)
    else:
@@ -617,13 +663,13 @@ def main(strFileName,strType="W"):
       elif opt == "-x": # pour extraire en fonction de coordonnées specifiées dans le fichier de config
          extractFromGpxFile(strFileName,strElementTreeEncoding)
       else: # pour rechercher des points dans la bdd (fonction principale du script)
-         chercheWaypointDansGpxEtExporte(strFileName,strType,strElementTreeEncoding) # type=W (waypoint) ou T (trackpoint)
+         chercheWaypointDansGpxEtExporte(strFileName,strType,strTxtInputFileName,strElementTreeEncoding) # type=W (waypoint) ou T (trackpoint)
 
 # ---------------------------------------------------------------------------------------------- 
 # lance la procedure principale
 if __name__ == "__main__":
     strInputFileName="AIXM_X_IFR_FR.gpx" # fichier par défaut historique (tuto)
     if not os.path.exists(strInputFileName): 
-       strInputFileName=sys.argv[0].replace(".py",".dat") # le fichier par défaut est le fichier .dat
+       strInputFileName=scriptBaseName().replace(".py",".dat") # le fichier par défaut est le fichier .dat
     main(strInputFileName)
 
