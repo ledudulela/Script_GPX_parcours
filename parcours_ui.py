@@ -1,12 +1,21 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-SCRIPT_VERSION=20210427.1847
+SCRIPT_VERSION=20210428.1724
 SCRIPT_AUTHOR="fdz"
 # interface graphique du script. 
 # Nécessite le package python3-tk si exécution avec python3 sinon python-tk 
+#
+# What's new in this version:
+# Amélioration du responsive design de la fenêtre principale
+# Renommages de menus
+# Nouveau menu "BDD > Enregistrer sous"
+# Nouveau menu "App > Ouvrir un fichier"
+# Nouveau menu "App > Enregistrer le contenu
+
 import os
 import sys
-from functools import partial
+
+#from functools import partial
 
 if sys.version_info.major<3:
    import Tkinter as tk
@@ -16,7 +25,8 @@ if sys.version_info.major<3:
 else:
    import tkinter as tk
    from tkinter import messagebox as msgbox
-
+   import tkinter.filedialog as tkFileDialog
+   
 moduleCmd=sys.argv[0].replace("_ui","")
 moduleCmd=moduleCmd.replace(".py","")
 moduleCmd=moduleCmd.replace("./","")
@@ -136,12 +146,20 @@ def lstFichiersInit(strSelectedFile=""): # initialise la liste des fichiers
          if strSelectedFile!="":
             if strSelectedFile == file: s=i
          i=i+1
+   #lstFichiers.config(yscrollcommand=scrollVFichiers.set)
    lstFichiers.select_set(s)
    lstFichiers.event_generate("<<ListboxSelect>>")
 
 def lstFichiersRefresh(strSelectedFile=""): # rafrachit la liste des fichiers
    lstFichiers.delete(0,tk.END)
    lstFichiersInit(strSelectedFile)
+
+def pleaseWaitOn():
+   lblInfoLib2['text']="Veuillez patentier..."
+   #msgbox.showinfo('Info',lblInfoLib2['text'])
+
+def pleaseWaitOff():
+   lblInfoLib2['text']=""
 
 #-----------------------------------
 # fonctions de la barre de menus
@@ -162,6 +180,23 @@ def mnuAppResetConfigOnClick():
    strContent=cmd.getDefaultConfigContent()
    displayContent(strContent)
 
+def mnuAppOpenFileOnClick():
+   arrTypesFiles=[('csv file','.csv'),('gpx file','.gpx'),('data file','.dat'),('xml file','.xml'),('txt file','.txt')]
+   strFilename=tkFileDialog.askopenfilename(title="Ouvrir un fichier",filetypes=arrTypesFiles)
+   if strFilename!="":
+      strContenu=getContenuFichier(strFilename)
+      displayContent(strContenu)
+
+def mnuAppSaveContentAsOnClick():
+   arrTypesFiles=[('all files','.*'),('csv file','.csv'),('gpx file','.gpx'),('data file','.dat'),('xml file','.xml'),('txt file','.txt')]
+   #strDefaultExt=".gpx"
+   strFilename=tkFileDialog.asksaveasfilename(title="Enregistrer le contenu sous",filetypes=arrTypesFiles)
+   if strFilename!="":
+      strContenu=txtDisplayContent.get("1.0", tk.END)
+      setContenuFichier(strFilename,strContenu)
+      strFilename=os.path.split(strFilename)[1]
+      lstFichiersRefresh(strFilename)
+
 
 def mnuDataShowDBFileOnClick():
    strContent=getContenuFichierDB()
@@ -171,8 +206,9 @@ def mnuDataExtractDBFileOnClick():
    if txtDisplayContent.search("<extract>","1.0",stopindex=tk.END):
       strElementTreeEncoding=cmd.xmlEltTreeEncoding()
       strFileName=cheminFichierDB()
-
+      pleaseWaitOn()
       strNewFileName=cmd.extractFromGpxFile(strFileName,strElementTreeEncoding)
+      pleaseWaitOff()
       if strNewFileName!="":
          # refresh liste fichiers
          lstFichiersRefresh(strNewFileName)
@@ -184,7 +220,9 @@ def mnuDataConvertDBFileToCSVOnClick():
       strElementTreeEncoding=cmd.xmlEltTreeEncoding()
       strFileName=cheminFichierDB()
       strPtType=strRbtnTypeId.get()
+      pleaseWaitOn()
       strFileName=cmd.convertGpxFileToCsvFile(strFileName,strPtType,strElementTreeEncoding)
+      pleaseWaitOff()
       if strFileName!="":
          strContent=getContenuFichier(strFileName)
          displayContent(strContent)
@@ -192,12 +230,22 @@ def mnuDataConvertDBFileToCSVOnClick():
 def mnuDataRefreshDBFileListOnClick():
    lstFichiersRefresh()
 
+def mnuDataSaveAsDBFileListOnClick():
+   arrTypesFiles=[('all files','.*'),('csv file','.csv'),('gpx file','.gpx'),('data file','.dat'),('xml file','.xml'),('txt file','.txt')]
+   #strDefaultExt=".gpx"
+   strFilename=tkFileDialog.asksaveasfilename(title="Enregistrer la BDD sous",filetypes=arrTypesFiles,initialfile=cheminFichierDB())
+   if strFilename!="":
+      strContenu=getContenuFichier(cheminFichierDB())
+      setContenuFichier(strFilename,strContenu)
+      strFilename=os.path.split(strFilename)[1]
+      lstFichiersRefresh(strFilename)
+
 def mnuDataDeleteDBFileOnClick():
    strFileName=cheminFichierDB()
    if msgbox.askyesno("Question","Supprimer le fichier %s ?"%strFileName):
       os.remove(strFileName)
       lstFichiersRefresh()
-      displayContent("")
+      displayContent(" ")
 
 
 def mnuSearchSearchOnClick():
@@ -209,9 +257,11 @@ def mnuSearchSearchOnClick():
     setContenuFichierTexte(strContent)
 
     #msgbox.showinfo('Info', 'Recherche en cours...')
+    pleaseWaitOn()
     strType=strRbtnTypeId.get()
     strCheminFichierSource=cheminFichierDB()
     cmd.main(strCheminFichierSource,strType,strTxtInputFileName=cheminFichierTexte())
+    pleaseWaitOff()
 
     #msgbox.showinfo('Info', 'Afficher le résultat')
     strContent=getContenuFichierCSV()
@@ -249,10 +299,23 @@ mnuApp.add_command(label="Afficher la configuration", command=mnuAppShowConfigOn
 mnuApp.add_command(label="Sauvegarder la configuration", command=mnuAppSaveConfigOnClick)
 mnuApp.add_command(label="Réinitialiser la configuration", command=mnuAppResetConfigOnClick)
 mnuApp.add_separator()
+mnuApp.add_command(label="Ouvrir un fichier...", command=mnuAppOpenFileOnClick)
+mnuApp.add_command(label="Enregistrer le contenu...", command=mnuAppSaveContentAsOnClick)
+mnuApp.add_separator()
 mnuApp.add_command(label="Quitter", command=mainWindow.quit)
 
+mnuData = tk.Menu(menubar, tearoff=0)
+mnuData.add_command(label="Ouvrir la sélection", command=mnuDataShowDBFileOnClick)
+mnuData.add_command(label="Convertir en CSV", command=mnuDataConvertDBFileToCSVOnClick)
+mnuData.add_command(label="Extraire une zone...", command=mnuDataExtractDBFileOnClick)
+mnuData.add_separator()
+mnuData.add_command(label="Enregistrer sous...", command=mnuDataSaveAsDBFileListOnClick)
+mnuData.add_command(label="Supprimer...", command=mnuDataDeleteDBFileOnClick)
+mnuData.add_separator()
+mnuData.add_command(label="Actualiser la liste", command=mnuDataRefreshDBFileListOnClick)
+
 mnuSearch = tk.Menu(menubar, tearoff=0)
-mnuSearch.add_command(label="Rechercher...", command=mnuSearchSearchOnClick)
+mnuSearch.add_command(label="Rechercher les points", command=mnuSearchSearchOnClick)
 mnuSearch.add_separator()
 mnuSearch.add_command(label="Afficher en CSV", command=mnuSearchShowCSVOnClick)
 mnuSearch.add_command(label="Afficher en GPX", command=mnuSearchShowGPXOnClick)
@@ -260,17 +323,9 @@ mnuSearch.add_command(label="Afficher en XML", command=mnuSearchShowXMLOnClick)
 mnuSearch.add_separator()
 mnuSearch.add_command(label="Afficher le Log", command=mnuSearchShowLogOnClick)
 
-mnuData = tk.Menu(menubar, tearoff=0)
-mnuData.add_command(label="Afficher", command=mnuDataShowDBFileOnClick)
-mnuData.add_command(label="Afficher en CSV", command=mnuDataConvertDBFileToCSVOnClick)
-mnuData.add_command(label="Extraire...", command=mnuDataExtractDBFileOnClick)
-mnuData.add_separator()
-mnuData.add_command(label="Actualiser", command=mnuDataRefreshDBFileListOnClick)
-mnuData.add_command(label="Supprimer...", command=mnuDataDeleteDBFileOnClick)
-
 # instancie la menubar
 menubar.add_cascade(label="Application",menu=mnuApp)
-menubar.add_cascade(label="Données",menu=mnuData)
+menubar.add_cascade(label="B.D.D.",menu=mnuData)
 menubar.add_cascade(label="Recherche",menu=mnuSearch)
 mainWindow.config(menu=menubar)
 
@@ -278,21 +333,52 @@ mainWindow.config(menu=menubar)
 # disposition des champs dans des panels
 # ----------------------------------------
 # panel top
-panTop = tk.PanedWindow(mainWindow, orient=tk.HORIZONTAL,width=1266) 
+windowWidth=1270
+if windowWidth>mainWindow.winfo_screenwidth(): windowWidth=mainWindow.winfo_screenwidth()
 
-# panel top/gauche
-panLeft = tk.PanedWindow(panTop, orient=tk.VERTICAL,width=300)
+windowHeight=660
+if windowHeight>mainWindow.winfo_screenheight(): windowHeight=mainWindow.winfo_screenheight()
+
+#panMain=windowWidth-4
+panMain= tk.PanedWindow(mainWindow, orient=tk.VERTICAL,bg="darkgray") # ,bg="red"
+
+# panel Top/info
+panInfo = tk.PanedWindow(panMain, orient=tk.HORIZONTAL) #  ,bg="blue"
+
+frmInfo=tk.Frame(panInfo) # ,borderwidth=1,relief=tk.GROOVE
+frmInfo.grid() #frmInfo.columnconfigure(0,weight=1)
+
+# Libellé 1
+lblInfoLib1 = tk.Label(frmInfo, text="Base de données:") # anchor:W = text-align:left
+
+# Label contenant le fichier source sélectionné par l'utilisateur
+lblSourceFilename = tk.Label(frmInfo, text="()",font="-size 9 -weight bold") # anchor='w'
+
+# Libellé 2
+lblInfoLib2 = tk.Label(frmInfo, text=" ",fg="red")
+
+# Positionnement des champs dans le Frame
+
+lblInfoLib1.grid(row=0,column=0)
+lblSourceFilename.grid(row=0,column=1)
+lblInfoLib2.grid(row=0,column=2)
+
+# disposition des champs dans le panel 
+panInfo.add(frmInfo)
+panInfo.pack(fill=tk.BOTH,padx=1, pady=1) # expand=tk.Y
+
+
+# --- panel 2 ---
+panData = tk.PanedWindow(panMain, orient=tk.HORIZONTAL)
+
+# panel gauche
+panLeft = tk.PanedWindow(panData, orient=tk.VERTICAL,width=270)
 
 # liste des fichiers sources de données 
-lstFichiers = tk.Listbox()
-lstFichiers.pack(side=tk.TOP)
-
- # champ texte contenant le fichier texte (15 caracteres de large)
-txtContenuFichierTexte = tk.Text(width=15)
-txtContenuFichierTexte.pack(side=tk.LEFT)
+lstFichiers = tk.Listbox(panLeft,height=20) # ,width=30
 
  # radiobuttons pour choix de type de points
-frmChoixType=tk.Frame(panLeft,borderwidth=2,relief=tk.GROOVE)
+frmChoixType=tk.LabelFrame(panLeft,borderwidth=0,relief=tk.FLAT,text='Points à rechercher:')
 frmChoixType.grid()
 strRbtnTypeId=tk.StringVar()
 rbtnTypeW=tk.Radiobutton(frmChoixType,text="Waypoint",variable=strRbtnTypeId,value="W")
@@ -300,45 +386,32 @@ rbtnTypeT=tk.Radiobutton(frmChoixType,text="Trackpoint",variable=strRbtnTypeId,v
 rbtnTypeW.select()
 rbtnTypeW.grid(row=0,column=0)
 rbtnTypeT.grid(row=0,column=1)
-frmChoixType.pack()
 
-# disposition des champs dans le panel top/gauche
+# champ texte contenant le fichier texte
+txtContenuFichierTexte = tk.Text()
+
+# disposition des champs dans le panel gauche
 panLeft.add(lstFichiers)
-panLeft.add(txtContenuFichierTexte)
 panLeft.add(frmChoixType)
-panLeft.pack(expand=tk.Y, fill=tk.BOTH, pady=2, padx=2)
+panLeft.add(txtContenuFichierTexte)
 
-# panel top/droit
-panRight = tk.PanedWindow(panTop)
+# panel droit
+panRight = tk.PanedWindow(panData)
 
 # champ texte principal pour afficher les données
 txtDisplayContent = tk.Text()
-txtDisplayContent.pack() 
 
-# disposition des champs dans le panel top/droit
+# disposition des champs dans le panel droit
 panRight.add(txtDisplayContent)
-panRight.pack(expand=tk.Y, fill=tk.BOTH, pady=2, padx=2)
 
-# disposition des sous-panels dans le panel top
-panTop.add(panLeft)
-panTop.add(panRight)
-panTop.pack()
 
-# panel bas
-panBottom = tk.PanedWindow(mainWindow, orient=tk.HORIZONTAL,height=30)
+# disposition des sous-panels dans le panel 
+panData.add(panLeft)
+panData.add(panRight)
+panData.pack(expand=tk.Y,fill=tk.BOTH,padx=2, pady=2)
 
-# Label de barre d'état
-lblStatebarLib1 = tk.Label(mainWindow, text="Fichier source de données:", width=60, anchor='e')
-lblStatebarLib1.pack(side=tk.LEFT)
-
-# Label contenant le fichier source sélectionné par l'utilisateur
-lblSourceFilename = tk.Label(mainWindow, text="()", width=128, anchor='w') 
-lblSourceFilename.pack()
-
-# disposition des champs dans le panel bas
-panBottom.add(lblSourceFilename)
-panBottom.add(lblSourceFilename)
-panBottom.pack()
+# pack panMain
+panMain.pack(expand=tk.Y,fill=tk.BOTH)
 
 # init et bind events des champs (en fin en raison d''interactions évènementielles entre champs)
 lstFichiers.bind("<<ListboxSelect>>", lstFichiersOnSelect)
@@ -346,7 +419,9 @@ lstFichiersInit()
 txtContenuFichierTexte.insert("1.0",getContenuFichierTexte())
 
 # affichage de la fenêtre principale
-#mainWindow.attributes("-fullscreen",False)
-mainWindow.geometry("1270x660")
+mainWindow.attributes("-fullscreen",False)
+#strWindowGeometry=str(windowWidth)+"x"+str(windowHeight)
+#print(strWindowGeometry)
+#mainWindow.geometry(strWindowGeometry)
 mainWindow.mainloop()
 
