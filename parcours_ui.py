@@ -1,19 +1,22 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-SCRIPT_VERSION=20210428.1724
+SCRIPT_VERSION=20210429.1825
 SCRIPT_AUTHOR="fdz"
-# interface graphique du script. 
+# interface graphique du script de même nom en ligne de commandes. 
 # Nécessite le package python3-tk si exécution avec python3 sinon python-tk 
 #
 # What's new in this version:
-# Amélioration du responsive design de la fenêtre principale
-# Renommages de menus
-# Nouveau menu "BDD > Enregistrer sous"
-# Nouveau menu "App > Ouvrir un fichier"
-# Nouveau menu "App > Enregistrer le contenu
+# Nouveau menu "Outils > Distance & Bearing (CSV)" ( sur du CSV avec au moins les entêtes lat,lon )
+# exemple de CSV après calculs:
+# type,lat,lon,name,dist,bearing
+# T,48.7199661,2.31692799,LFPO,0.00,0.00
+# T,43.64658511,7.2025804,LFMN,365.92,144.52
+# T,43.644114,1.345931,LFBO,254.40,271.99
+#
 
 import os
 import sys
+import math
 
 #from functools import partial
 
@@ -32,6 +35,39 @@ moduleCmd=moduleCmd.replace(".py","")
 moduleCmd=moduleCmd.replace("./","")
 cmd=__import__(moduleCmd)
 #import moduleCmd as cmd
+
+def msg(strTexte):
+      msgbox.showinfo(moduleCmd, strTexte)
+
+def distNmBetween2Points(floatLat1,floatLon1,floatLat2,floatLon2):
+   lat1 = floatLat1 * math.pi/180
+   lat2 = floatLat2 * math.pi/180
+   dlon = (floatLon2-floatLon1) * math.pi/180
+   R = 6371000/1852;
+   dNm = math.acos(math.sin(lat1)*math.sin(lat2) + math.cos(lat1)*math.cos(lat2) * math.cos(dlon)) * R;
+   return dNm
+
+def distNmBetween2PointsBis(floatLat1,floatLon1,floatLat2,floatLon2):
+   # autre methode de calcul
+   distance=0
+   if floatLat1==floatLat2:
+      distance=60 * math.fabs(floatLon1-floatLon2) * math.cos(math.radians(floatLat1))
+   else:
+      tempo=math.atan( math.fabs(floatLon1-floatLon2) / math.fabs(floatLat1-floatLat2) * math.cos(math.radians(math.fabs(floatLat1+floatLat2))/2) )
+      distance=math.fabs(floatLat1-floatLat2) / math.cos(tempo) *60
+   return distance
+
+def bearingBetween2Points(floatLat1,floatLon1,floatLat2,floatLon2):
+   lat1=math.radians(floatLat1)
+   lon1=math.radians(floatLon1)
+   lat2=math.radians(floatLat2)
+   lon2=math.radians(floatLon2)
+   dLon=lon2-lon1
+   Y=math.sin(dLon) * math.cos(lat2)
+   X=math.cos(lat1)*math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dLon)
+   bearing=math.degrees(math.atan2(Y,X))
+   if bearing<0: bearing=bearing+360
+   return bearing
 
 def cheminFichier(): # renvoie le nom du script "ligne de commandes" sans l'extension. exemple: "parcours"
    fileName=cmd.scriptBaseName()
@@ -127,6 +163,9 @@ def displayContent(strContent): # affiche la chaine dans le champ dédié
    txtDisplayContent.delete("1.0", tk.END)
    txtDisplayContent.insert("1.0",strContent)
 
+def getDisplayContent():
+   return txtDisplayContent.get("1.0", tk.END)
+
 def setCurrentFichierDB(strFileName): # affiche le nom de fichier sélectionné dans le champ dédié
    lblSourceFilename['text']=strFileName
 
@@ -173,7 +212,7 @@ def mnuAppShowConfigOnClick():
    displayContent(strContent)
 
 def mnuAppSaveConfigOnClick():
-   strContent=txtDisplayContent.get("1.0", tk.END)
+   strContent=getDisplayContent()
    setContenuFichierConfig(strContent)
 
 def mnuAppResetConfigOnClick():
@@ -192,10 +231,13 @@ def mnuAppSaveContentAsOnClick():
    #strDefaultExt=".gpx"
    strFilename=tkFileDialog.asksaveasfilename(title="Enregistrer le contenu sous",filetypes=arrTypesFiles)
    if strFilename!="":
-      strContenu=txtDisplayContent.get("1.0", tk.END)
+      strContenu=getDisplayContent()
       setContenuFichier(strFilename,strContenu)
       strFilename=os.path.split(strFilename)[1]
       lstFichiersRefresh(strFilename)
+
+def mnuAppAboutOnClick():
+   msg("Version: "+str(SCRIPT_VERSION))
 
 
 def mnuDataShowDBFileOnClick():
@@ -283,6 +325,74 @@ def mnuSearchShowLogOnClick():
    strContent=getContenuFichierLOG()
    displayContent(strContent)
 
+def mnuToolsDist2PointsOnClick():
+   strEntetesCSV=""
+   strContenu=getDisplayContent()+"\n"
+   arrContenu=strContenu.split("\n")
+   colLat=0
+   colLon=0
+   i=0
+   p=0
+
+   floatPreviousLat=0.0
+   floatPreviousLon=0.0
+   floatLat=0.0
+   floatLon=0.0
+
+   floatDistance=0.0
+   floatBearing=0.0
+
+   intLOF=0
+   floatEOL=0.0
+
+   NEWCOLS="dist,bearing"   
+
+   # recherche la position des colonnes lat et lon
+   # if txtDisplayContent.get('1.0','1.end').find(NEWCOLS)==-1:
+   if len(arrContenu[0])>0:
+      if not arrContenu[0].find("lat")==-1 and arrContenu[0].find("dist")==-1:
+         strEntetesCSV=arrContenu[0]
+         arrValues=strEntetesCSV.split(",")
+         for value in arrValues:
+            if value[0:3]=="lat": colLat=p
+            if value[0:3]=="lon": colLon=p
+            p=p+1
+
+   if colLon==0:
+      msgbox.showinfo('Info', "Format de données non valide.\nCSV sans entêtes lat,lon ou distance déjà présente.")
+   else:   
+      for strLine in arrContenu:
+         i=i+1
+         strLine=strLine.strip()
+         intLOF=len(strLine)
+
+         if intLOF>0:
+            strLine=strLine+","
+            floatEOL=str(i)+"."+str(intLOF)
+            if strLine.find(strEntetesCSV)==-1:
+               arrValues=strLine.split(",")
+               floatLat=float(arrValues[colLat])
+               floatLon=float(arrValues[colLon])
+               
+               if (floatPreviousLat==0 and floatPreviousLon==0):
+                  floatDistance=0.0
+                  floatBearing=0.0
+               else:
+                  
+                  floatDistance=distNmBetween2Points(floatPreviousLat,floatPreviousLon,floatLat,floatLon) 
+                  floatBearing=bearingBetween2Points(floatPreviousLat,floatPreviousLon,floatLat,floatLon)
+                  #print(i,floatLat,floatLon,floatPreviousLat,floatPreviousLon,floatDistance)
+
+               floatPreviousLat=floatLat
+               floatPreviousLon=floatLon
+
+               value=str("%.2f"%floatDistance)+","+str("%.2f"%floatBearing)
+
+            else:
+               value=NEWCOLS
+
+            txtDisplayContent.insert(floatEOL,","+value)
+
 
 # ----------------------------------------------------------------------------
 # initialisation de la fenêtre principale
@@ -301,6 +411,8 @@ mnuApp.add_command(label="Réinitialiser la configuration", command=mnuAppResetC
 mnuApp.add_separator()
 mnuApp.add_command(label="Ouvrir un fichier...", command=mnuAppOpenFileOnClick)
 mnuApp.add_command(label="Enregistrer le contenu...", command=mnuAppSaveContentAsOnClick)
+mnuApp.add_separator()
+mnuApp.add_command(label="À propos...", command=mnuAppAboutOnClick)
 mnuApp.add_separator()
 mnuApp.add_command(label="Quitter", command=mainWindow.quit)
 
@@ -323,10 +435,15 @@ mnuSearch.add_command(label="Afficher en XML", command=mnuSearchShowXMLOnClick)
 mnuSearch.add_separator()
 mnuSearch.add_command(label="Afficher le Log", command=mnuSearchShowLogOnClick)
 
+mnuTools = tk.Menu(menubar, tearoff=0)
+mnuTools.add_command(label="Distance & Bearing (CSV)", command=mnuToolsDist2PointsOnClick)
+
+
 # instancie la menubar
 menubar.add_cascade(label="Application",menu=mnuApp)
 menubar.add_cascade(label="B.D.D.",menu=mnuData)
 menubar.add_cascade(label="Recherche",menu=mnuSearch)
+menubar.add_cascade(label="Outils",menu=mnuTools)
 mainWindow.config(menu=menubar)
 
 # ----------------------------------------
