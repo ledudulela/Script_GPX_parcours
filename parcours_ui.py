@@ -1,23 +1,22 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-SCRIPT_VERSION=20210429.1825
-SCRIPT_AUTHOR="fdz"
+SCRIPT_VERSION=20210430.1718
+SCRIPT_AUTHOR="ledudulela"
+L_FR="FR"
+L_EN="EN"
+LOCALE=L_FR # choose your LOCALE
 # interface graphique du script de même nom en ligne de commandes. 
 # Nécessite le package python3-tk si exécution avec python3 sinon python-tk 
 #
 # What's new in this version:
-# Nouveau menu "Outils > Distance & Bearing (CSV)" ( sur du CSV avec au moins les entêtes lat,lon )
-# exemple de CSV après calculs:
-# type,lat,lon,name,dist,bearing
-# T,48.7199661,2.31692799,LFPO,0.00,0.00
-# T,43.64658511,7.2025804,LFMN,365.92,144.52
-# T,43.644114,1.345931,LFBO,254.40,271.99
-#
-
+# Menu contextuel Copy,Past,Select_all sur clic-droit de la zone de texte:
+# Maintenir le clic-droit pour choisir l'option menu contextuel.
+# Ajout de commentaires et amélioration du code dans la fonction de calculs de distance/bearing
+# Internationalisation de l'application: choix de la langue (en manuel) en changeant la constante LOCALE ci-dessus
+# Toute suggestion est bienvenue :)
 import os
 import sys
 import math
-
 #from functools import partial
 
 if sys.version_info.major<3:
@@ -36,6 +35,149 @@ moduleCmd=moduleCmd.replace("./","")
 cmd=__import__(moduleCmd)
 #import moduleCmd as cmd
 
+def i18n(strKey):
+   if not(LOCALE==L_FR or LOCALE==L_EN): LOCALE==L_EN
+   mapping={
+      "mnuApp":{L_FR:"Application",L_EN:"Application"},
+      "mnuAppShowConfig":{L_FR:"Afficher la configuration", L_EN:"Display configuration"},
+      "mnuAppSaveConfig":{L_FR:"Sauvegarder la configuration", L_EN:"Save configuration"},
+      "mnuAppResetConfig":{L_FR:"Réinitialiser la configuration", L_EN:"Reset configuration"},
+      "mnuAppOpenFile":{L_FR:"Ouvrir un fichier...", L_EN:"Open file..."},
+      "mnuAppSaveContentAs":{L_FR:"Enregistrer le contenu...", L_EN:"Save content..."},
+      "mnuAppAbout":{L_FR:"À propos...", L_EN:"About..."}, 
+      "mnuAppExit":{L_FR:"Quitter", L_EN:"Exit"}, 
+      "mnuData":{L_FR:"B.D.D",L_EN:"D.B"},
+      "mnuDataShowDBFile":{L_FR:"Ouvrir la sélection", L_EN:"Open selection"},
+      "mnuDataConvertDBFileToCSV":{L_FR:"Convertir en CSV",L_EN:"Convert in CSV"},
+      "mnuDataExtractDBFile":{L_FR:"Extraire une zone...",L_EN:"Extract a zone..."}, 
+      "mnuDataSaveAsDBFileList":{L_FR:"Enregistrer sous...", L_EN:"Save as..."},
+      "mnuDataDeleteDBFile":{L_FR:"Supprimer...", L_EN:"Delete..."},
+      "mnuDataRefreshDBFileList":{L_FR:"Actualiser la liste", L_EN:"Refresh list"},
+      "mnuSearch":{L_FR:"Recherche",L_EN:"Search"},
+      "mnuSearchSearch":{L_FR:"Rechercher les points", L_EN:"Search points"},
+      "mnuSearchShowCSV":{L_FR:"Afficher en CSV", L_EN:"Show in CSV"},
+      "mnuSearchShowGPX":{L_FR:"Afficher en GPX", L_EN:"Show in GPX"},
+      "mnuSearchShowXML":{L_FR:"Afficher en XML", L_EN:"Show in XML"},
+      "mnuSearchShowLog":{L_FR:"Afficher le Log", L_EN:"Show Log"},
+      "mnuTools":{L_FR:"Outils",L_EN:"Tools"},
+      "mnuToolsDist2Points":{L_FR:"Distance & Bearing (CSV)", L_EN:"Distance & Bearing (CSV)"},
+      "PopText_close":{L_FR:"[x]",L_EN:"[x]"},
+      "PopText_copy":{L_FR:"Copier",L_EN:"Copy"},
+      "PopText_cut":{L_FR:"Couper",L_EN:"Cut"},
+      "PopText_past":{L_FR:"Coller",L_EN:"Past"},
+      "PopText_select_row":{L_FR:"Sélectionner la ligne",L_EN:"Select row"},
+      "PopText_insert_row":{L_FR:"Insérer une ligne",L_EN:"Insert row"},
+      "PopText_select_all":{L_FR:"Tout sélectionner",L_EN:"Select all"},
+      "PopText_rows_count":{L_FR:"Nbr de lignes...",L_EN:"Nb rows..."},
+      "lblInfoLib1":{L_FR:"Base de données",L_EN:"Database"},
+      "frmChoixType":{L_FR:"Points à rechercher",L_EN:"Points to search"},
+      "lblInfoLib2":{L_FR:"Veuillez patentier",L_EN:"Please wait"},
+      "mnuDataExtractDBFile_msg_info_extract":{L_FR:"Veuillez afficher, modifier et sauvegarder les paramètres de configuration avant de lancer une extraction.",L_EN:"Please open, modify and save configuration parameters before extraction."},
+      "mnuToolsDist2Points_msg_info_err":{L_FR:"Format de données non valide.\nCSV sans entêtes lat,lon ou distance déjà présente.",L_EN:"Bad data format\nCSV without lat,lon header or distance already exists."},
+      "os_msg_open_file":{L_FR:"Ouvrir un fichier",L_EN:"Open file"},
+      "os_msg_delete_file":{L_FR:"Supprimer le fichier",L_EN:"Delete file"},
+      "os_msg_save_db_as":{L_FR:"Enregistrer la BDD sous",L_EN:"Save DB as"}, 
+      "os_msg_save_content_as":{L_FR:"Enregistrer le contenu sous",L_EN:"Save content as"},
+      "dummy":{L_FR:"In French", L_EN:"In English"}
+   }
+   return mapping[strKey][LOCALE]
+
+class PopText(tk.Text,tk.Tk): # classe surchargée pour afficher un popup-menu sur un tk.Text
+    # source https://stackoverflow.com/questions/12014210/tkinter-app-adding-a-right-click-context-menu
+    # Comportement particulier, il faut maintenir le clic-droit pour sélectionner une option du sous-menu
+    
+    def __init__(self,parentTkWindow):
+        tk.Text.__init__(self)
+        TAB="  "
+        self.parentWindow=parentTkWindow # permet de connaitre la fenetre parent pour l'utilisation du clipboard
+        self.popup_menu = tk.Menu(self, tearoff=0)   
+        self.popup_menu.add_command(label=i18n("PopText_close"), command=self.close)
+        #self.popup_menu.add_separator()
+        self.popup_menu.add_command(label=TAB+i18n("PopText_copy"), command=self.copy)
+        self.popup_menu.add_command(label=TAB+i18n("PopText_cut"), command=self.cut)
+        self.popup_menu.add_command(label=TAB+i18n("PopText_past"), command=self.past)
+        self.popup_menu.add_separator()
+        self.popup_menu.add_command(label=TAB+i18n("PopText_select_row"), command=self.select_row)
+        self.popup_menu.add_command(label=TAB+i18n("PopText_insert_row"), command=self.insert_row)
+        self.popup_menu.add_separator()
+        self.popup_menu.add_command(label=TAB+i18n("PopText_select_all"), command=self.select_all)
+        self.popup_menu.add_separator()
+        self.popup_menu.add_command(label=TAB+i18n("PopText_rows_count"), command=self.rows_count)
+        # bind event on right_click
+        self.bind("<Button-3>", self.popup) # Button-2 on Aqua
+
+    def curPos(self):
+       # current Cursor Position
+       return self.index(tk.INSERT)
+
+    def curPosRowStartEnd(self):
+       index=self.curPos()
+       strRow=index.split(".")[0]
+       start=strRow+".0"
+       end=strRow+".end"
+       return start,end
+    
+    def hasSelection(self):
+       return self.tag_ranges("sel")
+
+    def popup(self, event):
+        try:
+            self.popup_menu.tk_popup(event.x_root, event.y_root, 0)
+        finally:
+            self.popup_menu.grab_release()
+
+    def close(self):
+       pass # ferme le popup-menu
+
+    def copy(self):
+       if self.hasSelection(): # selection exists
+          self.parentWindow.clipboard_clear()  # clear clipboard-contents
+          self.parentWindow.clipboard_append(self.selection_get()) # copy selection in clipboard
+
+    def past(self):
+       # colle le clipboard-contents à la currentCursorPosition
+       self.insert(self.curPos(), self.parentWindow.clipboard_get())
+
+    def cut(self):
+       # si la sélection est une chaine, copie la chaine dans le clipboard et coupe la chaine.
+       # si la sélection est une ligne vierge, supprime la ligne
+       if self.hasSelection(): # si selection existe alors coupe la chaine
+          strContent=self.get(tk.SEL_FIRST,tk.SEL_LAST)
+          if len(strContent)>0:
+             self.copy() 
+             self.delete(tk.SEL_FIRST,tk.SEL_LAST)
+       else: # la sélection est une ligne vierge, supprime la ligne
+          start,end=self.curPosRowStartEnd()
+          strRowContent=self.get(start,end)
+          if len(strRowContent)==0: self.delete_row()
+
+    def select_all(self):
+       # sélectionne toutes les lignes
+       self.tag_add(tk.SEL, "1.0", tk.END)
+       self.mark_set(tk.INSERT, "1.0")
+       self.see(tk.INSERT)
+       return 'break'
+
+    def insert_row(self):
+       # insère une ligne vierge avant la ligne courante
+       self.insert('current linestart', "\n")
+
+    def delete_row(self):
+       # supprime la ligne
+       self.delete('current linestart', 'current lineend+1c')
+       #return "break" uncomment if you want to disable selection by double-clicking
+
+    def select_row(self):
+       # sélectionne le texte de la ligne
+       start,end=self.curPosRowStartEnd()
+       self.tag_add(tk.SEL,start,end)
+
+    def rows_count(self):
+       intNbrLignes=self.index('end-1c').split('.')[0]
+       strChaine="Nbr de lignes: "+str(intNbrLignes)
+       msg(strChaine)
+
+# -------------------------------------------------------------------------------
 def msg(strTexte):
       msgbox.showinfo(moduleCmd, strTexte)
 
@@ -118,10 +260,11 @@ def setContenuFichierConfig(strContenu): # écrit le contenu dans le fichier de 
 
 def getContenuFichier(strCheminFichier): # fonction générique, renvoie le contenu du fichier
    strReturn=""
-   if os.path.exists(strCheminFichier):
-      objFic = open(strCheminFichier, "r")
-      strReturn=objFic.read()   # charge le fichier 
-      objFic.close()
+   if strCheminFichier!="":
+      if os.path.exists(strCheminFichier):
+         objFic = open(strCheminFichier, "r")
+         strReturn=objFic.read()   # charge le fichier 
+         objFic.close()
    return strReturn
 
 
@@ -194,7 +337,8 @@ def lstFichiersRefresh(strSelectedFile=""): # rafrachit la liste des fichiers
    lstFichiersInit(strSelectedFile)
 
 def pleaseWaitOn():
-   lblInfoLib2['text']="Veuillez patentier..."
+   lblInfoLib2['text']=i18n("lblInfoLib2")+"..."
+   lblInfoLib2.master.update()
    #msgbox.showinfo('Info',lblInfoLib2['text'])
 
 def pleaseWaitOff():
@@ -221,16 +365,16 @@ def mnuAppResetConfigOnClick():
 
 def mnuAppOpenFileOnClick():
    arrTypesFiles=[('csv file','.csv'),('gpx file','.gpx'),('data file','.dat'),('xml file','.xml'),('txt file','.txt')]
-   strFilename=tkFileDialog.askopenfilename(title="Ouvrir un fichier",filetypes=arrTypesFiles)
-   if strFilename!="":
+   strFilename=tkFileDialog.askopenfilename(title=i18n("os_msg_open_file"),filetypes=arrTypesFiles)
+   if strFilename:
       strContenu=getContenuFichier(strFilename)
       displayContent(strContenu)
 
 def mnuAppSaveContentAsOnClick():
    arrTypesFiles=[('all files','.*'),('csv file','.csv'),('gpx file','.gpx'),('data file','.dat'),('xml file','.xml'),('txt file','.txt')]
    #strDefaultExt=".gpx"
-   strFilename=tkFileDialog.asksaveasfilename(title="Enregistrer le contenu sous",filetypes=arrTypesFiles)
-   if strFilename!="":
+   strFilename=tkFileDialog.asksaveasfilename(title=i18n("os_msg_save_content_as"),filetypes=arrTypesFiles)
+   if strFilename:
       strContenu=getDisplayContent()
       setContenuFichier(strFilename,strContenu)
       strFilename=os.path.split(strFilename)[1]
@@ -256,7 +400,7 @@ def mnuDataExtractDBFileOnClick():
          lstFichiersRefresh(strNewFileName)
          mnuDataShowDBFileOnClick()
    else:
-      msgbox.showinfo('Info',"Veuillez afficher, modifier et sauvegarder les paramètres de configuration avant de lancer une extraction.")
+      msgbox.showinfo('Info',i18n("mnuDataExtractDBFile_msg_info_extract"))
 
 def mnuDataConvertDBFileToCSVOnClick():
       strElementTreeEncoding=cmd.xmlEltTreeEncoding()
@@ -275,8 +419,8 @@ def mnuDataRefreshDBFileListOnClick():
 def mnuDataSaveAsDBFileListOnClick():
    arrTypesFiles=[('all files','.*'),('csv file','.csv'),('gpx file','.gpx'),('data file','.dat'),('xml file','.xml'),('txt file','.txt')]
    #strDefaultExt=".gpx"
-   strFilename=tkFileDialog.asksaveasfilename(title="Enregistrer la BDD sous",filetypes=arrTypesFiles,initialfile=cheminFichierDB())
-   if strFilename!="":
+   strFilename=tkFileDialog.asksaveasfilename(title=i18n("os_msg_save_db_as"),filetypes=arrTypesFiles,initialfile=cheminFichierDB())
+   if strFilename:
       strContenu=getContenuFichier(cheminFichierDB())
       setContenuFichier(strFilename,strContenu)
       strFilename=os.path.split(strFilename)[1]
@@ -284,10 +428,11 @@ def mnuDataSaveAsDBFileListOnClick():
 
 def mnuDataDeleteDBFileOnClick():
    strFileName=cheminFichierDB()
-   if msgbox.askyesno("Question","Supprimer le fichier %s ?"%strFileName):
-      os.remove(strFileName)
-      lstFichiersRefresh()
-      displayContent(" ")
+   if msgbox.askyesno("Question",i18n("os_msg_delete_file")+" %s ?"%strFileName):
+      if os.path.exists(strFileName):
+         os.remove(strFileName)
+         lstFichiersRefresh()
+         displayContent(" ")
 
 
 def mnuSearchSearchOnClick():
@@ -341,9 +486,9 @@ def mnuToolsDist2PointsOnClick():
 
    floatDistance=0.0
    floatBearing=0.0
-
+   boolPrevious=False
    intLOF=0
-   floatEOL=0.0
+   strEOL='1.end'
 
    NEWCOLS="dist,bearing"   
 
@@ -358,187 +503,191 @@ def mnuToolsDist2PointsOnClick():
             if value[0:3]=="lon": colLon=p
             p=p+1
 
-   if colLon==0:
-      msgbox.showinfo('Info', "Format de données non valide.\nCSV sans entêtes lat,lon ou distance déjà présente.")
+   if colLon==0: # avertissement si la col Lon n'a pas été trouvée
+      msgbox.showinfo('Info', i18n("mnuToolsDist2Points_msg_info_err"))
    else:   
       for strLine in arrContenu:
          i=i+1
          strLine=strLine.strip()
-         intLOF=len(strLine)
-
+         intLOF=len(strLine) # longueur de la ligne
          if intLOF>0:
             strLine=strLine+","
-            floatEOL=str(i)+"."+str(intLOF)
-            if strLine.find(strEntetesCSV)==-1:
+            strEOL=str(i)+'.end' # ou alors str(i)+"."+str(intLOF) pour la posi de fin de ligne
+            if not strLine.find(strEntetesCSV)==-1: # si les entêtes de colonnes attendues sont dans la ligne...
+               strValue=NEWCOLS
+            else:
                arrValues=strLine.split(",")
                floatLat=float(arrValues[colLat])
                floatLon=float(arrValues[colLon])
                
-               if (floatPreviousLat==0 and floatPreviousLon==0):
-                  floatDistance=0.0
-                  floatBearing=0.0
-               else:
-                  
+               if boolPrevious:
+                  # calculs distance et bearing
                   floatDistance=distNmBetween2Points(floatPreviousLat,floatPreviousLon,floatLat,floatLon) 
                   floatBearing=bearingBetween2Points(floatPreviousLat,floatPreviousLon,floatLat,floatLon)
-                  #print(i,floatLat,floatLon,floatPreviousLat,floatPreviousLon,floatDistance)
+               else:
+                  # pas de calcul, valeurs à 0
+                  floatDistance=0.0
+                  floatBearing=0.0
 
+               boolPrevious=True
                floatPreviousLat=floatLat
                floatPreviousLon=floatLon
 
-               value=str("%.2f"%floatDistance)+","+str("%.2f"%floatBearing)
-
-            else:
-               value=NEWCOLS
-
-            txtDisplayContent.insert(floatEOL,","+value)
-
+               # concat les valeurs dans la chaine à afficher
+               strValue=str("%.2f"%floatDistance)+","+str("%.2f"%floatBearing)
+            
+            # ajoute la chaine en fin de ligne
+            txtDisplayContent.insert(strEOL,","+strValue)
 
 # ----------------------------------------------------------------------------
-# initialisation de la fenêtre principale
-mainWindow = tk.Tk()
-mainWindow.title(cheminFichier())
+if __name__ == '__main__':
+   # initialisation de la fenêtre principale
+   mainWindow = tk.Tk()
+   mainWindow.title(cheminFichier())
 
-# ----------------------------------------
-# création des menus
-# ----------------------------------------
-menubar = tk.Menu(mainWindow)
+   # ----------------------------------------
+   # création des menus
+   # ----------------------------------------
+   menubar = tk.Menu(mainWindow)
 
-mnuApp = tk.Menu(menubar, tearoff=0)
-mnuApp.add_command(label="Afficher la configuration", command=mnuAppShowConfigOnClick)
-mnuApp.add_command(label="Sauvegarder la configuration", command=mnuAppSaveConfigOnClick)
-mnuApp.add_command(label="Réinitialiser la configuration", command=mnuAppResetConfigOnClick)
-mnuApp.add_separator()
-mnuApp.add_command(label="Ouvrir un fichier...", command=mnuAppOpenFileOnClick)
-mnuApp.add_command(label="Enregistrer le contenu...", command=mnuAppSaveContentAsOnClick)
-mnuApp.add_separator()
-mnuApp.add_command(label="À propos...", command=mnuAppAboutOnClick)
-mnuApp.add_separator()
-mnuApp.add_command(label="Quitter", command=mainWindow.quit)
+   mnuApp = tk.Menu(menubar, tearoff=0)
+   mnuApp.add_command(label=i18n("mnuAppShowConfig"), command=mnuAppShowConfigOnClick)
+   mnuApp.add_command(label=i18n("mnuAppSaveConfig"), command=mnuAppSaveConfigOnClick)
+   mnuApp.add_command(label=i18n("mnuAppResetConfig"), command=mnuAppResetConfigOnClick)
+   mnuApp.add_separator()
+   mnuApp.add_command(label=i18n("mnuAppOpenFile"), command=mnuAppOpenFileOnClick)
+   mnuApp.add_command(label=i18n("mnuAppSaveContentAs"), command=mnuAppSaveContentAsOnClick)
+   mnuApp.add_separator()
+   mnuApp.add_command(label=i18n("mnuAppAbout"), command=mnuAppAboutOnClick)
+   mnuApp.add_separator()
+   mnuApp.add_command(label=i18n("mnuAppExit"), command=mainWindow.quit)
 
-mnuData = tk.Menu(menubar, tearoff=0)
-mnuData.add_command(label="Ouvrir la sélection", command=mnuDataShowDBFileOnClick)
-mnuData.add_command(label="Convertir en CSV", command=mnuDataConvertDBFileToCSVOnClick)
-mnuData.add_command(label="Extraire une zone...", command=mnuDataExtractDBFileOnClick)
-mnuData.add_separator()
-mnuData.add_command(label="Enregistrer sous...", command=mnuDataSaveAsDBFileListOnClick)
-mnuData.add_command(label="Supprimer...", command=mnuDataDeleteDBFileOnClick)
-mnuData.add_separator()
-mnuData.add_command(label="Actualiser la liste", command=mnuDataRefreshDBFileListOnClick)
-
-mnuSearch = tk.Menu(menubar, tearoff=0)
-mnuSearch.add_command(label="Rechercher les points", command=mnuSearchSearchOnClick)
-mnuSearch.add_separator()
-mnuSearch.add_command(label="Afficher en CSV", command=mnuSearchShowCSVOnClick)
-mnuSearch.add_command(label="Afficher en GPX", command=mnuSearchShowGPXOnClick)
-mnuSearch.add_command(label="Afficher en XML", command=mnuSearchShowXMLOnClick)
-mnuSearch.add_separator()
-mnuSearch.add_command(label="Afficher le Log", command=mnuSearchShowLogOnClick)
-
-mnuTools = tk.Menu(menubar, tearoff=0)
-mnuTools.add_command(label="Distance & Bearing (CSV)", command=mnuToolsDist2PointsOnClick)
-
-
-# instancie la menubar
-menubar.add_cascade(label="Application",menu=mnuApp)
-menubar.add_cascade(label="B.D.D.",menu=mnuData)
-menubar.add_cascade(label="Recherche",menu=mnuSearch)
-menubar.add_cascade(label="Outils",menu=mnuTools)
-mainWindow.config(menu=menubar)
-
-# ----------------------------------------
-# disposition des champs dans des panels
-# ----------------------------------------
-# panel top
-windowWidth=1270
-if windowWidth>mainWindow.winfo_screenwidth(): windowWidth=mainWindow.winfo_screenwidth()
-
-windowHeight=660
-if windowHeight>mainWindow.winfo_screenheight(): windowHeight=mainWindow.winfo_screenheight()
-
-#panMain=windowWidth-4
-panMain= tk.PanedWindow(mainWindow, orient=tk.VERTICAL,bg="darkgray") # ,bg="red"
-
-# panel Top/info
-panInfo = tk.PanedWindow(panMain, orient=tk.HORIZONTAL) #  ,bg="blue"
-
-frmInfo=tk.Frame(panInfo) # ,borderwidth=1,relief=tk.GROOVE
-frmInfo.grid() #frmInfo.columnconfigure(0,weight=1)
-
-# Libellé 1
-lblInfoLib1 = tk.Label(frmInfo, text="Base de données:") # anchor:W = text-align:left
-
-# Label contenant le fichier source sélectionné par l'utilisateur
-lblSourceFilename = tk.Label(frmInfo, text="()",font="-size 9 -weight bold") # anchor='w'
-
-# Libellé 2
-lblInfoLib2 = tk.Label(frmInfo, text=" ",fg="red")
-
-# Positionnement des champs dans le Frame
-
-lblInfoLib1.grid(row=0,column=0)
-lblSourceFilename.grid(row=0,column=1)
-lblInfoLib2.grid(row=0,column=2)
-
-# disposition des champs dans le panel 
-panInfo.add(frmInfo)
-panInfo.pack(fill=tk.BOTH,padx=1, pady=1) # expand=tk.Y
+   mnuData = tk.Menu(menubar, tearoff=0)
+   mnuData.add_command(label=i18n("mnuDataShowDBFile"), command=mnuDataShowDBFileOnClick)
+   mnuData.add_command(label=i18n("mnuDataConvertDBFileToCSV"), command=mnuDataConvertDBFileToCSVOnClick)
+   mnuData.add_command(label=i18n("mnuDataExtractDBFile"), command=mnuDataExtractDBFileOnClick)
+   mnuData.add_separator()
+   mnuData.add_command(label=i18n("mnuDataSaveAsDBFileList"), command=mnuDataSaveAsDBFileListOnClick)
+   mnuData.add_command(label=i18n("mnuDataDeleteDBFile"), command=mnuDataDeleteDBFileOnClick)
+   mnuData.add_separator()
+   mnuData.add_command(label=i18n("mnuDataRefreshDBFileList"), command=mnuDataRefreshDBFileListOnClick)
+   
+   mnuSearch = tk.Menu(menubar, tearoff=0)
+   mnuSearch.add_command(label=i18n("mnuSearchSearch"), command=mnuSearchSearchOnClick)
+   mnuSearch.add_separator()
+   mnuSearch.add_command(label=i18n("mnuSearchShowCSV"), command=mnuSearchShowCSVOnClick)
+   mnuSearch.add_command(label=i18n("mnuSearchShowGPX"), command=mnuSearchShowGPXOnClick)
+   mnuSearch.add_command(label=i18n("mnuSearchShowXML"), command=mnuSearchShowXMLOnClick)
+   mnuSearch.add_separator()
+   mnuSearch.add_command(label=i18n("mnuSearchShowLog"), command=mnuSearchShowLogOnClick)
+   
+   mnuTools = tk.Menu(menubar, tearoff=0)
+   mnuTools.add_command(label=i18n("mnuToolsDist2Points"), command=mnuToolsDist2PointsOnClick)
 
 
-# --- panel 2 ---
-panData = tk.PanedWindow(panMain, orient=tk.HORIZONTAL)
+   # instancie la menubar
+   menubar.add_cascade(label=i18n("mnuApp"),menu=mnuApp)
+   menubar.add_cascade(label=i18n("mnuData"),menu=mnuData)
+   menubar.add_cascade(label=i18n("mnuSearch"),menu=mnuSearch)
+   menubar.add_cascade(label=i18n("mnuTools"),menu=mnuTools)
+   mainWindow.config(menu=menubar)
 
-# panel gauche
-panLeft = tk.PanedWindow(panData, orient=tk.VERTICAL,width=270)
+   # ----------------------------------------
+   # disposition des champs dans des panels
+   # ----------------------------------------
+   # panel top
+   windowWidth=1270
+   if windowWidth>mainWindow.winfo_screenwidth(): windowWidth=mainWindow.winfo_screenwidth()
 
-# liste des fichiers sources de données 
-lstFichiers = tk.Listbox(panLeft,height=20) # ,width=30
+   windowHeight=660
+   if windowHeight>mainWindow.winfo_screenheight(): windowHeight=mainWindow.winfo_screenheight()
+   
+   #panMain=windowWidth-4
+   panMain= tk.PanedWindow(mainWindow, orient=tk.VERTICAL,bg="darkgray") # ,bg="red"
 
- # radiobuttons pour choix de type de points
-frmChoixType=tk.LabelFrame(panLeft,borderwidth=0,relief=tk.FLAT,text='Points à rechercher:')
-frmChoixType.grid()
-strRbtnTypeId=tk.StringVar()
-rbtnTypeW=tk.Radiobutton(frmChoixType,text="Waypoint",variable=strRbtnTypeId,value="W")
-rbtnTypeT=tk.Radiobutton(frmChoixType,text="Trackpoint",variable=strRbtnTypeId,value="T")
-rbtnTypeW.select()
-rbtnTypeW.grid(row=0,column=0)
-rbtnTypeT.grid(row=0,column=1)
+   # panel Top/info
+   panInfo = tk.PanedWindow(panMain, orient=tk.HORIZONTAL) #  ,bg="blue"
 
-# champ texte contenant le fichier texte
-txtContenuFichierTexte = tk.Text()
+   frmInfo=tk.Frame(panInfo) # ,borderwidth=1,relief=tk.GROOVE
+   frmInfo.grid() #frmInfo.columnconfigure(0,weight=1)
 
-# disposition des champs dans le panel gauche
-panLeft.add(lstFichiers)
-panLeft.add(frmChoixType)
-panLeft.add(txtContenuFichierTexte)
+   # Libellé 1
+   lblInfoLib1 = tk.Label(frmInfo, text=i18n("lblInfoLib1")+":") # anchor:W = text-align:left
 
-# panel droit
-panRight = tk.PanedWindow(panData)
+   # Label contenant le fichier source sélectionné par l'utilisateur
+   lblSourceFilename = tk.Label(frmInfo, text="()",font="-size 9 -weight bold") # anchor='w'
 
-# champ texte principal pour afficher les données
-txtDisplayContent = tk.Text()
+   # Libellé 2 contiendra par exemple le "please wait" pour les longs traitements
+   lblInfoLib2 = tk.Label(frmInfo, text=" ",fg="red")
 
-# disposition des champs dans le panel droit
-panRight.add(txtDisplayContent)
+   # Positionnement des champs dans le Frame
+
+   lblInfoLib1.grid(row=0,column=0)
+   lblSourceFilename.grid(row=0,column=1)
+   lblInfoLib2.grid(row=0,column=2)
+
+   frmInfo.columnconfigure(2,weight=3) # attribution de l'espace de la dernière colonne 
+
+   # disposition des champs dans le panel 
+   panInfo.add(frmInfo)
+   panInfo.pack(fill=tk.BOTH,padx=1, pady=1) # expand=tk.Y
 
 
-# disposition des sous-panels dans le panel 
-panData.add(panLeft)
-panData.add(panRight)
-panData.pack(expand=tk.Y,fill=tk.BOTH,padx=2, pady=2)
+   # --- panel 2 ---
+   panData = tk.PanedWindow(panMain, orient=tk.HORIZONTAL)
 
-# pack panMain
-panMain.pack(expand=tk.Y,fill=tk.BOTH)
+   # panel gauche
+   panLeft = tk.PanedWindow(panData, orient=tk.VERTICAL,width=270)
 
-# init et bind events des champs (en fin en raison d''interactions évènementielles entre champs)
-lstFichiers.bind("<<ListboxSelect>>", lstFichiersOnSelect)
-lstFichiersInit()
-txtContenuFichierTexte.insert("1.0",getContenuFichierTexte())
+   # liste des fichiers sources de données 
+   lstFichiers = tk.Listbox(panLeft,height=20) # ,width=30
 
-# affichage de la fenêtre principale
-mainWindow.attributes("-fullscreen",False)
-#strWindowGeometry=str(windowWidth)+"x"+str(windowHeight)
-#print(strWindowGeometry)
-#mainWindow.geometry(strWindowGeometry)
-mainWindow.mainloop()
+   # radiobuttons pour choix de type de points
+   frmChoixType=tk.LabelFrame(panLeft,borderwidth=0,relief=tk.FLAT,text=i18n("frmChoixType")+':')
+   frmChoixType.grid()
+   strRbtnTypeId=tk.StringVar()
+   rbtnTypeW=tk.Radiobutton(frmChoixType,text="Waypoint",variable=strRbtnTypeId,value="W")
+   rbtnTypeT=tk.Radiobutton(frmChoixType,text="Trackpoint",variable=strRbtnTypeId,value="T")
+   rbtnTypeW.select()
+   rbtnTypeW.grid(row=0,column=0)
+   rbtnTypeT.grid(row=0,column=1)
+
+   # champ texte contenant le fichier texte
+   txtContenuFichierTexte = PopText(mainWindow) # tk.Text()
+
+   # disposition des champs dans le panel gauche
+   panLeft.add(lstFichiers)
+   panLeft.add(frmChoixType)
+   panLeft.add(txtContenuFichierTexte)
+
+   # panel droit
+   panRight = tk.PanedWindow(panData)
+
+   # champ texte principal pour afficher les données
+   txtDisplayContent = PopText(mainWindow) #tk.Text()
+
+   # disposition des champs dans le panel droit
+   panRight.add(txtDisplayContent)
+
+
+   # disposition des sous-panels dans le panel 
+   panData.add(panLeft)
+   panData.add(panRight)
+   panData.pack(expand=tk.Y,fill=tk.BOTH,padx=2, pady=2)
+
+   # pack panMain
+   panMain.pack(expand=tk.Y,fill=tk.BOTH)
+
+   # init et bind events des champs (en fin en raison d''interactions évènementielles entre champs)
+   lstFichiers.bind("<<ListboxSelect>>", lstFichiersOnSelect)
+   lstFichiersInit()
+   txtContenuFichierTexte.insert("1.0",getContenuFichierTexte())
+   
+
+   # affichage de la fenêtre principale
+   mainWindow.attributes("-fullscreen",False)
+   #strWindowGeometry=str(windowWidth)+"x"+str(windowHeight)
+   #print(strWindowGeometry)
+   #mainWindow.geometry(strWindowGeometry)
+   mainWindow.mainloop()
 
