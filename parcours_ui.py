@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-SCRIPT_VERSION=20210430.1718
+SCRIPT_VERSION=20210501.1219
 SCRIPT_AUTHOR="ledudulela"
 L_FR="FR"
 L_EN="EN"
@@ -9,32 +9,33 @@ LOCALE=L_FR # choose your LOCALE
 # Nécessite le package python3-tk si exécution avec python3 sinon python-tk 
 #
 # What's new in this version:
-# Menu contextuel Copy,Past,Select_all sur clic-droit de la zone de texte:
-# Maintenir le clic-droit pour choisir l'option menu contextuel.
-# Ajout de commentaires et amélioration du code dans la fonction de calculs de distance/bearing
-# Internationalisation de l'application: choix de la langue (en manuel) en changeant la constante LOCALE ci-dessus
-# Toute suggestion est bienvenue :)
-import os
-import sys
+# Pour du contenu CSV: 
+#  - le type de points (W/T) est automatiquement remplacé en cliquant sur les boutons Waypoint/Trackpoint 
+#  - nouveau menu Tools>Remplacer les lignes vierges par l'entête : recopie la première ligne (entêtes CSV) sur les lignes vierges.
+#    c'est pratique avec des trackpoints, sur le site gpsvisualizer avec l'option "Draw tracks as waypoints" = "yes with no name" ,
+#    cela crée des segments indépendants.
+# python: Suppression des chargements de modules redondants
+# info: le script est compatible windows10 / linux (pas testé sur mac)
+
+from sys import argv as argv
 import math
 #from functools import partial
 
-if sys.version_info.major<3:
+# importe le script de commandes
+moduleCmd=argv[0].replace("_ui","")
+moduleCmd=moduleCmd.replace(".py","")
+moduleCmd=moduleCmd.replace("./","")
+cmd=__import__(moduleCmd) # import moduleCmd as cmd
+
+if cmd.sys.version_info.major<3:
    import Tkinter as tk
    import tkMessageBox as msgbox
    import tkFileDialog
-   # Messagebox
 else:
    import tkinter as tk
    from tkinter import messagebox as msgbox
    import tkinter.filedialog as tkFileDialog
    
-moduleCmd=sys.argv[0].replace("_ui","")
-moduleCmd=moduleCmd.replace(".py","")
-moduleCmd=moduleCmd.replace("./","")
-cmd=__import__(moduleCmd)
-#import moduleCmd as cmd
-
 def i18n(strKey):
    if not(LOCALE==L_FR or LOCALE==L_EN): LOCALE==L_EN
    mapping={
@@ -61,6 +62,7 @@ def i18n(strKey):
       "mnuSearchShowLog":{L_FR:"Afficher le Log", L_EN:"Show Log"},
       "mnuTools":{L_FR:"Outils",L_EN:"Tools"},
       "mnuToolsDist2Points":{L_FR:"Distance & Bearing (CSV)", L_EN:"Distance & Bearing (CSV)"},
+      "mnuToolsReplaceBlankRowsByHeader":{L_FR:"Remplacer les lignes vierges par l'entête", L_EN:"Replace blank rows by header"},
       "PopText_close":{L_FR:"[x]",L_EN:"[x]"},
       "PopText_copy":{L_FR:"Copier",L_EN:"Copy"},
       "PopText_cut":{L_FR:"Couper",L_EN:"Cut"},
@@ -213,7 +215,7 @@ def bearingBetween2Points(floatLat1,floatLon1,floatLat2,floatLon2):
 
 def cheminFichier(): # renvoie le nom du script "ligne de commandes" sans l'extension. exemple: "parcours"
    fileName=cmd.scriptBaseName()
-   arrFileRootExt=os.path.splitext(fileName)
+   arrFileRootExt=cmd.os.path.splitext(fileName)
    fileName=arrFileRootExt[0] 
    return fileName
 
@@ -261,7 +263,7 @@ def setContenuFichierConfig(strContenu): # écrit le contenu dans le fichier de 
 def getContenuFichier(strCheminFichier): # fonction générique, renvoie le contenu du fichier
    strReturn=""
    if strCheminFichier!="":
-      if os.path.exists(strCheminFichier):
+      if cmd.os.path.exists(strCheminFichier):
          objFic = open(strCheminFichier, "r")
          strReturn=objFic.read()   # charge le fichier 
          objFic.close()
@@ -317,13 +319,13 @@ def lstFichiersOnSelect(event): # évènement de sélection d'un elt dans la lis
       setCurrentFichierDB(event.widget.get(event.widget.curselection()))
 
 def lstFichiersInit(strSelectedFile=""): # initialise la liste des fichiers
-   arrFiles=os.listdir('.')
+   arrFiles=cmd.os.listdir('.')
    arrExt=('.dat','.gpx')
    i=0
    s=0
    arrFiles.sort()
    for file in arrFiles:
-      if os.path.splitext(file)[1] in arrExt:
+      if cmd.os.path.splitext(file)[1] in arrExt:
          lstFichiers.insert(i, file)
          if strSelectedFile!="":
             if strSelectedFile == file: s=i
@@ -343,6 +345,25 @@ def pleaseWaitOn():
 
 def pleaseWaitOff():
    lblInfoLib2['text']=""
+
+def rbtnTypeOnChange():
+   # si le contenu est en CSV, change le type de point pour chaque ligne du CSV en fonction du choix utilisateur 
+   strNewType=strRbtnTypeId.get()
+
+   strFoundType="T"
+   if strNewType=="T": strFoundType="W"
+   strNewType=strNewType+","
+   strFoundType=strFoundType+","
+
+   strContenu=getDisplayContent()+"\n"
+   arrContenu=strContenu.split("\n")
+   i=0
+   for strLine in arrContenu:
+      i=i+1
+      if len(strLine)>2: 
+         if strLine[0:2]==strFoundType:
+            txtDisplayContent.delete(str(i)+".0",str(i)+".2")
+            txtDisplayContent.insert(str(i)+".0",strNewType)
 
 #-----------------------------------
 # fonctions de la barre de menus
@@ -377,7 +398,7 @@ def mnuAppSaveContentAsOnClick():
    if strFilename:
       strContenu=getDisplayContent()
       setContenuFichier(strFilename,strContenu)
-      strFilename=os.path.split(strFilename)[1]
+      strFilename=cmd.os.path.split(strFilename)[1]
       lstFichiersRefresh(strFilename)
 
 def mnuAppAboutOnClick():
@@ -423,14 +444,14 @@ def mnuDataSaveAsDBFileListOnClick():
    if strFilename:
       strContenu=getContenuFichier(cheminFichierDB())
       setContenuFichier(strFilename,strContenu)
-      strFilename=os.path.split(strFilename)[1]
+      strFilename=cmd.os.path.split(strFilename)[1]
       lstFichiersRefresh(strFilename)
 
 def mnuDataDeleteDBFileOnClick():
    strFileName=cheminFichierDB()
    if msgbox.askyesno("Question",i18n("os_msg_delete_file")+" %s ?"%strFileName):
-      if os.path.exists(strFileName):
-         os.remove(strFileName)
+      if cmd.os.path.exists(strFileName):
+         cmd.os.remove(strFileName)
          lstFichiersRefresh()
          displayContent(" ")
 
@@ -539,6 +560,29 @@ def mnuToolsDist2PointsOnClick():
             # ajoute la chaine en fin de ligne
             txtDisplayContent.insert(strEOL,","+strValue)
 
+
+def mnuToolsReplaceBlankRowsByHeaderOnClick():
+   # remplace les lignes vierges par le contenu de la ligne 1 (entêtes CSV)
+   strEntetesCSV=""
+   strContenu=getDisplayContent()+"\n"
+   arrContenu=strContenu.split("\n")
+   n=len(arrContenu)-1
+   i=0
+   p=0
+   l=0
+   boolWrite=False
+   if n>0: strEntetesCSV=arrContenu[0].strip()
+   if len(strEntetesCSV):
+      for i in range(n, -1, -1):
+         strLine=arrContenu[i].strip()
+         p=str(i+1)
+         l=len(strLine)
+         if boolWrite and l==0:
+            txtDisplayContent.delete(p+".0",p+".0")
+            txtDisplayContent.insert(p+".0",strEntetesCSV)
+
+         boolWrite=(l>0)
+
 # ----------------------------------------------------------------------------
 if __name__ == '__main__':
    # initialisation de la fenêtre principale
@@ -583,7 +627,7 @@ if __name__ == '__main__':
    
    mnuTools = tk.Menu(menubar, tearoff=0)
    mnuTools.add_command(label=i18n("mnuToolsDist2Points"), command=mnuToolsDist2PointsOnClick)
-
+   mnuTools.add_command(label=i18n("mnuToolsReplaceBlankRowsByHeader"), command=mnuToolsReplaceBlankRowsByHeaderOnClick)
 
    # instancie la menubar
    menubar.add_cascade(label=i18n("mnuApp"),menu=mnuApp)
@@ -646,8 +690,8 @@ if __name__ == '__main__':
    frmChoixType=tk.LabelFrame(panLeft,borderwidth=0,relief=tk.FLAT,text=i18n("frmChoixType")+':')
    frmChoixType.grid()
    strRbtnTypeId=tk.StringVar()
-   rbtnTypeW=tk.Radiobutton(frmChoixType,text="Waypoint",variable=strRbtnTypeId,value="W")
-   rbtnTypeT=tk.Radiobutton(frmChoixType,text="Trackpoint",variable=strRbtnTypeId,value="T")
+   rbtnTypeW=tk.Radiobutton(frmChoixType,text="Waypoint",variable=strRbtnTypeId,value="W",command=rbtnTypeOnChange)
+   rbtnTypeT=tk.Radiobutton(frmChoixType,text="Trackpoint",variable=strRbtnTypeId,value="T",command=rbtnTypeOnChange)
    rbtnTypeW.select()
    rbtnTypeW.grid(row=0,column=0)
    rbtnTypeT.grid(row=0,column=1)
