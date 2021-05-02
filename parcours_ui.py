@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-SCRIPT_VERSION=20210501.1219
+SCRIPT_VERSION=20210501.2113
 SCRIPT_AUTHOR="ledudulela"
 L_FR="FR"
 L_EN="EN"
@@ -10,13 +10,10 @@ LOCALE=L_FR # choose your LOCALE
 #
 # What's new in this version:
 # Pour du contenu CSV: 
-#  - le type de points (W/T) est automatiquement remplacé en cliquant sur les boutons Waypoint/Trackpoint 
-#  - nouveau menu Tools>Remplacer les lignes vierges par l'entête : recopie la première ligne (entêtes CSV) sur les lignes vierges.
-#    c'est pratique avec des trackpoints, sur le site gpsvisualizer avec l'option "Draw tracks as waypoints" = "yes with no name" ,
-#    cela crée des segments indépendants.
-# python: Suppression des chargements de modules redondants
-# info: le script est compatible windows10 / linux (pas testé sur mac)
-
+#  - nouveau menu Tools > Coord. à lat,lon,dist,bearing: coordonnées du point se trouvant à une distance & bearing d'un point donné
+#   saisir lat,lon,dist,bearing (avec ou sans entêtes de colonnes CSV en première ligne)
+#   Le résultat sera affiché sur la dernière ligne
+#
 from sys import argv as argv
 import math
 #from functools import partial
@@ -62,6 +59,7 @@ def i18n(strKey):
       "mnuSearchShowLog":{L_FR:"Afficher le Log", L_EN:"Show Log"},
       "mnuTools":{L_FR:"Outils",L_EN:"Tools"},
       "mnuToolsDist2Points":{L_FR:"Distance & Bearing (CSV)", L_EN:"Distance & Bearing (CSV)"},
+      "mnuToolsCoordByBearingDist":{L_FR:"Coord. à lat,lon,dist,bearing (CSV)", L_EN:"Coord. at lat,lon,dist,bearing (CSV)"},
       "mnuToolsReplaceBlankRowsByHeader":{L_FR:"Remplacer les lignes vierges par l'entête", L_EN:"Replace blank rows by header"},
       "PopText_close":{L_FR:"[x]",L_EN:"[x]"},
       "PopText_copy":{L_FR:"Copier",L_EN:"Copy"},
@@ -76,6 +74,7 @@ def i18n(strKey):
       "lblInfoLib2":{L_FR:"Veuillez patentier",L_EN:"Please wait"},
       "mnuDataExtractDBFile_msg_info_extract":{L_FR:"Veuillez afficher, modifier et sauvegarder les paramètres de configuration avant de lancer une extraction.",L_EN:"Please open, modify and save configuration parameters before extraction."},
       "mnuToolsDist2Points_msg_info_err":{L_FR:"Format de données non valide.\nCSV sans entêtes lat,lon ou distance déjà présente.",L_EN:"Bad data format\nCSV without lat,lon header or distance already exists."},
+      "mnuToolsCoordByBearingDist_msg_info_err":{L_FR:"Format de données non valide.\nCSV sans entêtes lat,lon,dist,bearing.",L_EN:"Bad data format\nCSV without lat,lon,dist,bearing header."},
       "os_msg_open_file":{L_FR:"Ouvrir un fichier",L_EN:"Open file"},
       "os_msg_delete_file":{L_FR:"Supprimer le fichier",L_EN:"Delete file"},
       "os_msg_save_db_as":{L_FR:"Enregistrer la BDD sous",L_EN:"Save DB as"}, 
@@ -187,7 +186,7 @@ def distNmBetween2Points(floatLat1,floatLon1,floatLat2,floatLon2):
    lat1 = floatLat1 * math.pi/180
    lat2 = floatLat2 * math.pi/180
    dlon = (floatLon2-floatLon1) * math.pi/180
-   R = 6371000/1852;
+   R = 6371010/1852
    dNm = math.acos(math.sin(lat1)*math.sin(lat2) + math.cos(lat1)*math.cos(lat2) * math.cos(dlon)) * R;
    return dNm
 
@@ -212,6 +211,37 @@ def bearingBetween2Points(floatLat1,floatLon1,floatLat2,floatLon2):
    bearing=math.degrees(math.atan2(Y,X))
    if bearing<0: bearing=bearing+360
    return bearing
+
+
+def pointRadialDistance(lat1, lon1, bearing, distance):
+    """
+    Return final coordinates (lat2,lon2) [in degrees] given initial coordinates
+    (lat1,lon1) [in degrees] and a bearing [in degrees] and distance [in NM]
+    """
+    rEarth = 6371.010 # Earth's average radius in km
+    epsilon = 0.000001 # threshold for floating-point equality
+
+    rlat1 = math.radians(lat1)
+    rlon1 = math.radians(lon1)
+    rbearing = math.radians(bearing)
+    rdistance = distance *1.852 / rEarth # normalize linear distance to radian angle  / 1.852 
+
+    rlat2 = math.asin( math.sin(rlat1) * math.cos(rdistance) + math.cos(rlat1) * math.sin(rdistance) * math.cos(rbearing) )
+
+    #if math.cos(rlat1) == 0 or math.fabs(math.cos(rlat1)) < epsilon: # Endpoint a pole
+    #    rlon2=rlon1
+    #else:
+    #    rlon2 = ((rlon1 - math.asin( math.sin(rbearing)* math.sin(rdistance) / math.cos(rlat1) ) + math.pi ) % (2*math.pi) ) - math.pi
+
+    if ((math.cos(rlat2) == 0) and (math.fabs(math.cos(rlat2)) < epsilon)):
+       rlon2 = rlon1;
+    else:
+       rlon2 = rlon1 + math.atan2(math.sin(rbearing) * math.sin(rdistance) * math.cos(rlat1), math.cos(rdistance) - math.sin(rlat1) * math.sin(rlat2));
+
+    lat = math.degrees(rlat2)
+    lon = math.degrees(rlon2)
+    return (lat, lon)
+
 
 def cheminFichier(): # renvoie le nom du script "ligne de commandes" sans l'extension. exemple: "parcours"
    fileName=cmd.scriptBaseName()
@@ -491,6 +521,7 @@ def mnuSearchShowLogOnClick():
    strContent=getContenuFichierLOG()
    displayContent(strContent)
 
+
 def mnuToolsDist2PointsOnClick():
    strEntetesCSV=""
    strContenu=getDisplayContent()+"\n"
@@ -560,6 +591,60 @@ def mnuToolsDist2PointsOnClick():
             # ajoute la chaine en fin de ligne
             txtDisplayContent.insert(strEOL,","+strValue)
 
+def mnuToolsCoordByBearingDistOnClick():
+   # Calculating coordinates given a bearing and a distance
+   l=0
+   iLat=0
+   iLon=1
+   iDist=2
+   iBear=3
+   strType=""
+   strSym=""
+   strName=""
+   strResult=""
+# soit il n'y a pas l'entête CSV et dans ce cas on attent uniquement les valeurs sur la première ligne:
+#   lat,lon,dist,bearing
+# soit il y a les entêtes et on attend deux lignes ordonnées ainsi avec les valeurs sur la 2ème ligne:
+#   lat,lon,dist,bearing
+#   -21.31,55.41,15.00,270.00
+# ou
+#   type,latitude,longitude,sym,name,dist,bearing
+#   T,-21.31,55.41,"Airport",[FMEP],15.00,270.00
+
+   strContenu=getDisplayContent()+"\n"
+   arrContenu=strContenu.split("\n")
+   if len(arrContenu)>0:
+      strLine=arrContenu[0]
+      if strLine.find("lon")>0: # dans ce cas, les entêtes existent
+         l=1
+         if strLine.find("name")>0:
+            iLat=1
+            iLon=2
+            iDist=5
+            iBear=6
+            strSym=',"Waypoint"'
+            strName=',PointX'
+ 
+      if len(arrContenu)>l:
+         strLine=arrContenu[l] # ligne de valeurs
+         if strLine.find(",")>0: # la confiance n'exclut pas le contrôle
+            strLine=strLine.replace(", ","||") # pour les sym contenant une virgule
+            arrCols=strLine.split(",")
+            
+            if l==1: strType=strLine[0:2] # si entetes alors type en debut de ligne
+            lat1=float(arrCols[iLat].strip())
+            lon1=float(arrCols[iLon].strip())
+            dist=float(arrCols[iDist].strip())
+            bear=float(arrCols[iBear].strip())
+            (lat,lon) = pointRadialDistance(lat1,lon1,bear,dist)
+
+            # affiche le résultat sur la dernière ligne
+            strResult=strType + str(lat) + "," + str(lon) + strSym + strName + "," + str(dist) + "," + str(bear)
+            txtDisplayContent.insert(tk.END,"\n" + strResult)
+
+   if strResult=="":
+      msg(i18n("mnuToolsCoordByBearingDist_msg_info_err"))
+
 
 def mnuToolsReplaceBlankRowsByHeaderOnClick():
    # remplace les lignes vierges par le contenu de la ligne 1 (entêtes CSV)
@@ -627,6 +712,8 @@ if __name__ == '__main__':
    
    mnuTools = tk.Menu(menubar, tearoff=0)
    mnuTools.add_command(label=i18n("mnuToolsDist2Points"), command=mnuToolsDist2PointsOnClick)
+   mnuTools.add_command(label=i18n("mnuToolsCoordByBearingDist"), command=mnuToolsCoordByBearingDistOnClick)
+   mnuTools.add_separator()
    mnuTools.add_command(label=i18n("mnuToolsReplaceBlankRowsByHeader"), command=mnuToolsReplaceBlankRowsByHeaderOnClick)
 
    # instancie la menubar
