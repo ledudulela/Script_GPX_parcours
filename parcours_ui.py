@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-SCRIPT_VERSION=20210501.2113
+SCRIPT_VERSION=20210504.1714
 SCRIPT_AUTHOR="ledudulela"
 L_FR="FR"
 L_EN="EN"
@@ -10,12 +10,14 @@ LOCALE=L_FR # choose your LOCALE
 #
 # What's new in this version:
 # Pour du contenu CSV: 
-#  - nouveau menu Tools > Coord. à lat,lon,dist,bearing: coordonnées du point se trouvant à une distance & bearing d'un point donné
-#   saisir lat,lon,dist,bearing (avec ou sans entêtes de colonnes CSV en première ligne)
+#  - nouveau menu Tools > Correction du bearing géographique / magnétique
 #   Le résultat sera affiché sur la dernière ligne
+#  - ajout de la barre de boutons d'accès rapide
+#  - python: clean code
 #
 from sys import argv as argv
 import math
+import re
 #from functools import partial
 
 # importe le script de commandes
@@ -28,10 +30,15 @@ if cmd.sys.version_info.major<3:
    import Tkinter as tk
    import tkMessageBox as msgbox
    import tkFileDialog
+   import tkSimpleDialog as inputbox
 else:
    import tkinter as tk
    from tkinter import messagebox as msgbox
    import tkinter.filedialog as tkFileDialog
+   from tkinter import simpledialog as inputbox
+
+
+REGEXCSV='(?!\B"[^"]*),(?![^"]*"\B)'
    
 def i18n(strKey):
    if not(LOCALE==L_FR or LOCALE==L_EN): LOCALE==L_EN
@@ -58,9 +65,15 @@ def i18n(strKey):
       "mnuSearchShowXML":{L_FR:"Afficher en XML", L_EN:"Show in XML"},
       "mnuSearchShowLog":{L_FR:"Afficher le Log", L_EN:"Show Log"},
       "mnuTools":{L_FR:"Outils",L_EN:"Tools"},
-      "mnuToolsDist2Points":{L_FR:"Distance & Bearing (CSV)", L_EN:"Distance & Bearing (CSV)"},
-      "mnuToolsCoordByBearingDist":{L_FR:"Coord. à lat,lon,dist,bearing (CSV)", L_EN:"Coord. at lat,lon,dist,bearing (CSV)"},
+      "mnuToolsDist2Points":{L_FR:"Ajouter Distance & Bearing", L_EN:"Add Distance & Bearing"},
+      "mnuToolsCoordByBearingDist":{L_FR:"Coord. à partir de: lat,lon,dist,bearing", L_EN:"Coord. from: lat,lon,dist,bearing"},
+      "mnuToolsMagnetDeclin":{L_FR:"Correction du bearing géo./magn.", L_EN:"Geo./Magn.bearing correction"},
       "mnuToolsReplaceBlankRowsByHeader":{L_FR:"Remplacer les lignes vierges par l'entête", L_EN:"Replace blank rows by header"},
+      "btnAppQuit":{L_FR:"Quitter",L_EN:"Quit"},
+      "btnSearchSearch":{L_FR:"Rechercher",L_EN:"Search"},
+      "btnToolsDist2Points":{L_FR:"Dist. & Bear.",L_EN:"Dist. & Bear."},
+      "btnToolsCoordByBearingDist":{L_FR:"Coord. dist.",L_EN:"Coord. dist."},
+      "btnToolsMagnetDeclin":{L_FR:"Geo. / Magn.",L_EN:"Geo. / Magn."},
       "PopText_close":{L_FR:"[x]",L_EN:"[x]"},
       "PopText_copy":{L_FR:"Copier",L_EN:"Copy"},
       "PopText_cut":{L_FR:"Couper",L_EN:"Cut"},
@@ -73,12 +86,14 @@ def i18n(strKey):
       "frmChoixType":{L_FR:"Points à rechercher",L_EN:"Points to search"},
       "lblInfoLib2":{L_FR:"Veuillez patentier",L_EN:"Please wait"},
       "mnuDataExtractDBFile_msg_info_extract":{L_FR:"Veuillez afficher, modifier et sauvegarder les paramètres de configuration avant de lancer une extraction.",L_EN:"Please open, modify and save configuration parameters before extraction."},
-      "mnuToolsDist2Points_msg_info_err":{L_FR:"Format de données non valide.\nCSV sans entêtes lat,lon ou distance déjà présente.",L_EN:"Bad data format\nCSV without lat,lon header or distance already exists."},
+      "mnuToolsDist2Points_msg_info_err":{L_FR:"Format de données non valide.\nCSV sans entêtes lat,lon ou dist,bearing déjà présents.",L_EN:"Bad data format\nCSV without lat,lon header or dist,bearing already exist."},
       "mnuToolsCoordByBearingDist_msg_info_err":{L_FR:"Format de données non valide.\nCSV sans entêtes lat,lon,dist,bearing.",L_EN:"Bad data format\nCSV without lat,lon,dist,bearing header."},
+      "mnuToolsMagnetDeclin_msg_info_err":{L_FR:"Format de données non valide.\nCSV sans entêtes lat,lon,dist,bearing.",L_EN:"Bad data format\nCSV without lat,lon,dist,bearing header."},
       "os_msg_open_file":{L_FR:"Ouvrir un fichier",L_EN:"Open file"},
       "os_msg_delete_file":{L_FR:"Supprimer le fichier",L_EN:"Delete file"},
       "os_msg_save_db_as":{L_FR:"Enregistrer la BDD sous",L_EN:"Save DB as"}, 
       "os_msg_save_content_as":{L_FR:"Enregistrer le contenu sous",L_EN:"Save content as"},
+      "inputboxMagnetDeclinValue":{L_FR:"Valeur à ajouter",L_EN:"Value to add"},
       "dummy":{L_FR:"In French", L_EN:"In English"}
    }
    return mapping[strKey][LOCALE]
@@ -106,6 +121,7 @@ class PopText(tk.Text,tk.Tk): # classe surchargée pour afficher un popup-menu s
         self.popup_menu.add_command(label=TAB+i18n("PopText_rows_count"), command=self.rows_count)
         # bind event on right_click
         self.bind("<Button-3>", self.popup) # Button-2 on Aqua
+        self.bind("<KeyRelease-KP_Enter>",self.kp_enter_release) # <KeyRelease> -KP_Enter
 
     def curPos(self):
        # current Cursor Position
@@ -126,6 +142,14 @@ class PopText(tk.Text,tk.Tk): # classe surchargée pour afficher un popup-menu s
             self.popup_menu.tk_popup(event.x_root, event.y_root, 0)
         finally:
             self.popup_menu.grab_release()
+
+    def kp_enter_release(self, event):
+       # insère une ligne vierge après la position courante
+       try:
+          self.insert(self.curPos(), "\n")        
+       finally:
+          pass
+
 
     def close(self):
        pass # ferme le popup-menu
@@ -178,10 +202,73 @@ class PopText(tk.Text,tk.Tk): # classe surchargée pour afficher un popup-menu s
        strChaine="Nbr de lignes: "+str(intNbrLignes)
        msg(strChaine)
 
+    def delete_last_blank_rows(self):
+      # supprime les lignes vierges en fin
+      intNbrLignes=int(self.index('end-1c').split('.')[0])
+      for i in range(intNbrLignes-1, -1, -1):
+         strRow=str(i)
+         start=strRow+".0"
+         end=strRow+".end+1c"
+         strContent=self.get(start,end)
+         #print(start,end,strContent,str(len(strContent)))
+         if len(strContent)==1: 
+            self.delete(start,end)
+         else:
+            break
+
 # -------------------------------------------------------------------------------
 def msg(strTexte):
       msgbox.showinfo(moduleCmd, strTexte)
 
+# -------------------------------------------------------------------------------
+def csvCommaIsInString(strString):
+   # renvoie True si la chaine contient une virgule
+   boolReturn=(strString.find(',')>0)
+   return boolReturn
+
+def csvLineToArray(strCsvLine):
+   # renvoie un tableau de valeurs de la chaine CSV.
+   # renvoie None si la chaine ne contient pas de virgule.
+   arrCols=None
+   if csvCommaIsInString(strCsvLine): 
+      arrCols=re.split(r'(?!\B"[^"]*),(?![^"]*"\B)',strCsvLine,flags=re.IGNORECASE)
+   return arrCols
+
+def csvIndexOfCol(strCsvHeader,strSearchColName):
+   # renvoie l'index de la colonne recherchée dans l'entête CSV.
+   # renvoie None si le nom de la colonne recherchée ne s'y trouve pas.
+   p=None
+   i=0
+   arrCols=csvLineToArray(strCsvHeader)
+   strSearchValue=strSearchColName
+   if not arrCols is None:
+      for strCol in arrCols:
+         if strCol[0:3]==strSearchValue[0:3]: # prend que la partie gauche pour palier à lat/latitude et lon/longitude
+            p=i
+         i=i+1         
+   return p
+
+def csvIsGpxHeader(strHeader,strSearchTerm=""):
+   # renvoie True si trouve la chaine "lat,lon" dans strHeader,
+   # si strSearchTerm est spécifié, recherchera, en plus, la présence de ce terme dans strHeader
+   boolReturn=False
+   if not strHeader.find('lat,lon')==-1 or not strHeader.find('latitude,lon')==-1:
+      if strSearchTerm=="":
+         boolReturn=True
+      else:
+         if not strHeader.find(strSearchTerm+",")==-1 or not strHeader.find(","+strSearchTerm)==-1 :
+            boolReturn=True
+   return boolReturn
+
+def csvIsGpxRowOfValues(strLine):
+   # renvoie True si strLine ne contient pas d'entêtes et donc, 
+   # dans ce cas, strLine contient des valeurs séparées par une virgule
+   boolReturn=False
+   if csvCommaIsInString(strLine) and not csvIsGpxHeader(strLine):
+      boolReturn=True
+   return boolReturn
+
+# -------------------------------------------------------------------------------
 def distNmBetween2Points(floatLat1,floatLon1,floatLat2,floatLon2):
    lat1 = floatLat1 * math.pi/180
    lat2 = floatLat2 * math.pi/180
@@ -241,7 +328,6 @@ def pointRadialDistance(lat1, lon1, bearing, distance):
     lat = math.degrees(rlat2)
     lon = math.degrees(rlon2)
     return (lat, lon)
-
 
 def cheminFichier(): # renvoie le nom du script "ligne de commandes" sans l'extension. exemple: "parcours"
    fileName=cmd.scriptBaseName()
@@ -539,36 +625,35 @@ def mnuToolsDist2PointsOnClick():
    floatDistance=0.0
    floatBearing=0.0
    boolPrevious=False
-   intLOF=0
+   intLOL=0
    strEOL='1.end'
 
    NEWCOLS="dist,bearing"   
 
    # recherche la position des colonnes lat et lon
-   # if txtDisplayContent.get('1.0','1.end').find(NEWCOLS)==-1:
    if len(arrContenu[0])>0:
-      if not arrContenu[0].find("lat")==-1 and arrContenu[0].find("dist")==-1:
-         strEntetesCSV=arrContenu[0]
-         arrValues=strEntetesCSV.split(",")
-         for value in arrValues:
-            if value[0:3]=="lat": colLat=p
-            if value[0:3]=="lon": colLon=p
-            p=p+1
+      strLine=arrContenu[0].strip()
+      if csvIsGpxHeader(strLine) and not (csvIsGpxHeader(strLine,"dist") or csvIsGpxHeader(strLine,"bearing")):
+         colLat=csvIndexOfCol(strLine,"lat")
+         colLon=csvIndexOfCol(strLine,"lon")
 
    if colLon==0: # avertissement si la col Lon n'a pas été trouvée
-      msgbox.showinfo('Info', i18n("mnuToolsDist2Points_msg_info_err"))
+      msg(i18n("mnuToolsDist2Points_msg_info_err"))
    else:   
       for strLine in arrContenu:
          i=i+1
          strLine=strLine.strip()
-         intLOF=len(strLine) # longueur de la ligne
-         if intLOF>0:
-            strLine=strLine+","
-            strEOL=str(i)+'.end' # ou alors str(i)+"."+str(intLOF) pour la posi de fin de ligne
-            if not strLine.find(strEntetesCSV)==-1: # si les entêtes de colonnes attendues sont dans la ligne...
+         intLOL=len(strLine) # longueur de la ligne
+         if intLOL>0:
+            strValue=""
+            strEOL=str(i)+'.end' # ou alors str(i)+"."+str(intLOL) pour la posi de fin de ligne
+            
+            if csvIsGpxHeader(strLine): # si les noms de colonnes obligatoires se trouvent dans la ligne...
                strValue=NEWCOLS
-            else:
-               arrValues=strLine.split(",")
+               boolPrevious=False
+
+            else: 
+               arrValues=csvLineToArray(strLine)
                floatLat=float(arrValues[colLat])
                floatLon=float(arrValues[colLon])
                
@@ -591,11 +676,21 @@ def mnuToolsDist2PointsOnClick():
             # ajoute la chaine en fin de ligne
             txtDisplayContent.insert(strEOL,","+strValue)
 
+      txtDisplayContent.delete_last_blank_rows()
+
 def mnuToolsCoordByBearingDistOnClick():
    # Calculating coordinates given a bearing and a distance
    l=0
+   i=0
+   n=0
+   p=0
+   boolContinue=True
+   boolTrouve=False
+   iType=None
    iLat=0
    iLon=1
+   iSym=None
+   iName=None
    iDist=2
    iBear=3
    strType=""
@@ -613,38 +708,114 @@ def mnuToolsCoordByBearingDistOnClick():
 
    strContenu=getDisplayContent()+"\n"
    arrContenu=strContenu.split("\n")
+   strContenu=""
+
    if len(arrContenu)>0:
       strLine=arrContenu[0]
-      if strLine.find("lon")>0: # dans ce cas, les entêtes existent
-         l=1
-         if strLine.find("name")>0:
-            iLat=1
-            iLon=2
-            iDist=5
-            iBear=6
-            strSym=',"Waypoint"'
-            strName=',PointX'
- 
-      if len(arrContenu)>l:
-         strLine=arrContenu[l] # ligne de valeurs
-         if strLine.find(",")>0: # la confiance n'exclut pas le contrôle
-            strLine=strLine.replace(", ","||") # pour les sym contenant une virgule
-            arrCols=strLine.split(",")
-            
-            if l==1: strType=strLine[0:2] # si entetes alors type en debut de ligne
-            lat1=float(arrCols[iLat].strip())
-            lon1=float(arrCols[iLon].strip())
-            dist=float(arrCols[iDist].strip())
-            bear=float(arrCols[iBear].strip())
-            (lat,lon) = pointRadialDistance(lat1,lon1,bear,dist)
 
-            # affiche le résultat sur la dernière ligne
-            strResult=strType + str(lat) + "," + str(lon) + strSym + strName + "," + str(dist) + "," + str(bear)
-            txtDisplayContent.insert(tk.END,"\n" + strResult)
+      if csvIsGpxHeader(strLine):
+         if csvIsGpxHeader(strLine,"dist") and csvIsGpxHeader(strLine,"bearing"): 
+            l=1 # il y a une ligne d'entêtes avec les noms de colonnes obligatoires
+            iType=csvIndexOfCol(strLine,"type")
+            iLat=csvIndexOfCol(strLine,"lat")
+            iLon=csvIndexOfCol(strLine,"lon")
+            iSym=csvIndexOfCol(strLine,"sym")
+            iName=csvIndexOfCol(strLine,"name")
+            iDist=csvIndexOfCol(strLine,"dist")
+            iBear=csvIndexOfCol(strLine,"bearing")
+            txtDisplayContent.insert(tk.END,"\n")
+         else:
+            boolContinue=False
 
-   if strResult=="":
-      msg(i18n("mnuToolsCoordByBearingDist_msg_info_err"))
+      if boolContinue:
+         for strLine in arrContenu:
+            strResult=""
+            if len(arrContenu)>l: 
+               strLine=arrContenu[i].strip()
+               if csvIsGpxRowOfValues(strLine):
+                  arrColValues=csvLineToArray(strLine)
+                  p=p+1
+                  if not iType==None: strType=arrColValues[iType]+","
+                  if not iLat==None: lat1=float(arrColValues[iLat])
+                  if not iLon==None: lon1=float(arrColValues[iLon])
+                  if not iSym==None: strSym=',"Waypoint"'
+                  if not iName==None: strName=',Point'+str(p)
+                  if not iDist==None: dist=float(arrColValues[iDist])
+                  if not iBear==None: bear=float(arrColValues[iBear])
 
+                  (lat,lon) = pointRadialDistance(lat1,lon1,bear,dist)
+
+                  # affiche le résultat sur la dernière ligne
+                  boolTrouve=True
+
+                  strResult=strType + str(lat) + "," + str(lon) + strSym + strName + "," + str(dist) + "," + str(bear)
+                  txtDisplayContent.insert(tk.END,"\n"+strResult)
+               else:
+                  txtDisplayContent.insert(tk.END,"\n"+strLine)
+            i=i+1
+         txtDisplayContent.delete_last_blank_rows()
+
+   if not boolTrouve: msg(i18n("mnuToolsCoordByBearingDist_msg_info_err"))
+
+def mnuToolsMagnetDeclinOnClick():
+   # demande à l'utilisateur une valeur de bearing puis si le champ bearing existe dans l'entête CSV, 
+   # ajoute cette valeur au bearing de chaque ligne
+   # le résultat est écrit dans une nouvelle ligne en fin de la zone de texte
+   strInputOffsetBearing=""
+   bearingOffset=0
+   l=0
+   p=0
+   c=0
+   strEntetes=""
+   strLeftCsv=""
+
+   strContenu=getDisplayContent()+"\n"
+   arrContenu=strContenu.split("\n")
+   strContenu=""
+   if len(arrContenu)>0:
+      if not csvIsGpxHeader(arrContenu[0],"bearing"): # recherche le terme dans la première ligne du tableau
+         msg(i18n("mnuToolsMagnetDeclin_msg_info_err"))
+      else:
+         # demande à l'utilisateur la valeur du OffSet
+         strInputOffsetBearing=inputbox.askstring(
+            i18n("mnuToolsMagnetDeclin"), 
+            prompt=i18n("inputboxMagnetDeclinValue")+":",
+            initialvalue=0)
+
+         if not strInputOffsetBearing is None:
+            if re.match('^[0-9\.\-]*$',strInputOffsetBearing): # if isnumeric
+               bearingOffset=float(strInputOffsetBearing)
+            else:
+               bearingOffset=999 # sera ainsi hors plage
+
+            if bearingOffset>=-180 and bearingOffset<=180:
+
+               for strLine in arrContenu:
+                  strLine=strLine.strip()
+                  l=l+1
+                  if l==1: 
+                     txtDisplayContent.insert(tk.END,"\n") # ajoute une ligne vierge en fin
+
+                  if csvIsGpxHeader(strLine,"bearing"):
+                     strEntetes=strLine
+                     strResult=strLine
+                     c=csvIndexOfCol(strEntetes,"bearing")
+                  else:
+                     if csvCommaIsInString(strLine):
+                        arrCols=csvLineToArray(strLine)
+                        bearing=arrCols[c]
+                        p=len(strLine)-len(bearing)
+                        strLeftCsv=strLine[0:p]
+                        bearing=float(bearing.strip()) + bearingOffset
+                        if bearing>=360: bearing=bearing-360
+                        if bearing<0: bearing=360+bearing
+                        strResult=strLeftCsv + str("%.2f"%bearing)
+                     else:
+                        strResult=strLine
+
+                  # affiche le résultat sur la dernière ligne
+                  txtDisplayContent.insert(tk.END,"\n" + strResult)
+               txtDisplayContent.delete_last_blank_rows()
 
 def mnuToolsReplaceBlankRowsByHeaderOnClick():
    # remplace les lignes vierges par le contenu de la ligne 1 (entêtes CSV)
@@ -713,6 +884,7 @@ if __name__ == '__main__':
    mnuTools = tk.Menu(menubar, tearoff=0)
    mnuTools.add_command(label=i18n("mnuToolsDist2Points"), command=mnuToolsDist2PointsOnClick)
    mnuTools.add_command(label=i18n("mnuToolsCoordByBearingDist"), command=mnuToolsCoordByBearingDistOnClick)
+   mnuTools.add_command(label=i18n("mnuToolsMagnetDeclin"), command=mnuToolsMagnetDeclinOnClick)
    mnuTools.add_separator()
    mnuTools.add_command(label=i18n("mnuToolsReplaceBlankRowsByHeader"), command=mnuToolsReplaceBlankRowsByHeaderOnClick)
 
@@ -726,18 +898,43 @@ if __name__ == '__main__':
    # ----------------------------------------
    # disposition des champs dans des panels
    # ----------------------------------------
-   # panel top
+   # dimensionnement de la fenêtre
    windowWidth=1270
    if windowWidth>mainWindow.winfo_screenwidth(): windowWidth=mainWindow.winfo_screenwidth()
 
    windowHeight=660
    if windowHeight>mainWindow.winfo_screenheight(): windowHeight=mainWindow.winfo_screenheight()
-   
-   #panMain=windowWidth-4
-   panMain= tk.PanedWindow(mainWindow, orient=tk.VERTICAL,bg="darkgray") # ,bg="red"
+
+   # ----------------------------------------
+   # panel top
+   PANBG="darkgray" # couleur de fond par défaut
+   panMain= tk.PanedWindow(mainWindow, orient=tk.VERTICAL,bg=PANBG)
+
+   # panel Top / barre de boutons
+   WB=8 # largeur par défaut des boutons
+   RLF=tk.FLAT
+   panButtons = tk.PanedWindow(panMain, orient=tk.HORIZONTAL,bg=PANBG)
+
+   frmButtons=tk.Frame(panButtons,bg=PANBG) # ,borderwidth=1,relief=tk.GROOVE
+   frmButtons.grid()
+
+   btnAppQuit=tk.Button(frmButtons,text=i18n("btnAppQuit"), width=WB, relief=RLF,command=mainWindow.quit)
+   btnSearchSearch=tk.Button(frmButtons,text=i18n("btnSearchSearch"), width=WB, relief=RLF,command=mnuSearchSearchOnClick)
+   btnToolsDist2Points=tk.Button(frmButtons,text=i18n("btnToolsDist2Points"), width=WB, relief=RLF,command=mnuToolsDist2PointsOnClick)
+   btnToolsCoordByBearingDist=tk.Button(frmButtons,text=i18n("btnToolsCoordByBearingDist"), width=WB, relief=RLF,command=mnuToolsCoordByBearingDistOnClick)
+   btnToolsMagnetDeclin=tk.Button(frmButtons,text=i18n("btnToolsMagnetDeclin"), width=WB, relief=RLF,command=mnuToolsMagnetDeclinOnClick)
+
+   btnAppQuit.grid(row=0,column=0,padx=4)
+   btnSearchSearch.grid(row=0,column=1,padx=10)
+   btnToolsDist2Points.grid(row=0,column=2,padx=4)
+   btnToolsCoordByBearingDist.grid(row=0,column=3)
+   btnToolsMagnetDeclin.grid(row=0,column=4,padx=4)
+
+   panButtons.add(frmButtons)
+   panButtons.pack(fill=tk.BOTH,padx=3, pady=5)
 
    # panel Top/info
-   panInfo = tk.PanedWindow(panMain, orient=tk.HORIZONTAL) #  ,bg="blue"
+   panInfo = tk.PanedWindow(panMain, orient=tk.HORIZONTAL)
 
    frmInfo=tk.Frame(panInfo) # ,borderwidth=1,relief=tk.GROOVE
    frmInfo.grid() #frmInfo.columnconfigure(0,weight=1)
@@ -761,7 +958,7 @@ if __name__ == '__main__':
 
    # disposition des champs dans le panel 
    panInfo.add(frmInfo)
-   panInfo.pack(fill=tk.BOTH,padx=1, pady=1) # expand=tk.Y
+   panInfo.pack(fill=tk.BOTH,padx=2, pady=0) # expand=tk.Y
 
 
    # --- panel 2 ---
@@ -804,10 +1001,10 @@ if __name__ == '__main__':
    # disposition des sous-panels dans le panel 
    panData.add(panLeft)
    panData.add(panRight)
-   panData.pack(expand=tk.Y,fill=tk.BOTH,padx=2, pady=2)
+   panData.pack(expand=tk.Y,fill=tk.BOTH,padx=2, pady=0)
 
    # pack panMain
-   panMain.pack(expand=tk.Y,fill=tk.BOTH)
+   panMain.pack(expand=tk.Y,fill=tk.BOTH,pady=1)
 
    # init et bind events des champs (en fin en raison d''interactions évènementielles entre champs)
    lstFichiers.bind("<<ListboxSelect>>", lstFichiersOnSelect)
