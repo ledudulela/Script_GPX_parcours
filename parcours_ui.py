@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-SCRIPT_VERSION=20210504.1714
+SCRIPT_VERSION=20210505.1931
 SCRIPT_AUTHOR="ledudulela"
 L_FR="FR"
 L_EN="EN"
@@ -9,10 +9,11 @@ LOCALE=L_FR # choose your LOCALE
 # Nécessite le package python3-tk si exécution avec python3 sinon python-tk 
 #
 # What's new in this version:
-# Pour du contenu CSV: 
-#  - nouveau menu Tools > Correction du bearing géographique / magnétique
-#   Le résultat sera affiché sur la dernière ligne
-#  - ajout de la barre de boutons d'accès rapide
+#  - amélioration du Tool > Correction du bearing géographique / magnétique
+#  avec les paramètres [w o e - +]  pris en charge ( remplace E par le signe - )
+#  e correspond à -
+#  w, o correspondent à +
+#  t (expérimental) pour un seul point, affichera les coordonnées des points à l'extrémité de la tangente du segment
 #  - python: clean code
 #
 from sys import argv as argv
@@ -67,13 +68,13 @@ def i18n(strKey):
       "mnuTools":{L_FR:"Outils",L_EN:"Tools"},
       "mnuToolsDist2Points":{L_FR:"Ajouter Distance & Bearing", L_EN:"Add Distance & Bearing"},
       "mnuToolsCoordByBearingDist":{L_FR:"Coord. à partir de: lat,lon,dist,bearing", L_EN:"Coord. from: lat,lon,dist,bearing"},
-      "mnuToolsMagnetDeclin":{L_FR:"Correction du bearing géo./magn.", L_EN:"Geo./Magn.bearing correction"},
+      "mnuToolsMagnetDeclin":{L_FR:"Correction du bearing géo./magnét.", L_EN:"Geo./Magnet. bearing correction"},
       "mnuToolsReplaceBlankRowsByHeader":{L_FR:"Remplacer les lignes vierges par l'entête", L_EN:"Replace blank rows by header"},
       "btnAppQuit":{L_FR:"Quitter",L_EN:"Quit"},
       "btnSearchSearch":{L_FR:"Rechercher",L_EN:"Search"},
-      "btnToolsDist2Points":{L_FR:"Dist. & Bear.",L_EN:"Dist. & Bear."},
-      "btnToolsCoordByBearingDist":{L_FR:"Coord. dist.",L_EN:"Coord. dist."},
-      "btnToolsMagnetDeclin":{L_FR:"Geo. / Magn.",L_EN:"Geo. / Magn."},
+      "btnToolsDist2Points":{L_FR:"+ Dist. & Bear.",L_EN:"+ Dist. & Bear."},
+      "btnToolsCoordByBearingDist":{L_FR:"Coord. Pt dist.",L_EN:"Coord. dist. Pt"},
+      "btnToolsMagnetDeclin":{L_FR:"Géo. / Magnét.",L_EN:"Geo. / Magnet."},
       "PopText_close":{L_FR:"[x]",L_EN:"[x]"},
       "PopText_copy":{L_FR:"Copier",L_EN:"Copy"},
       "PopText_cut":{L_FR:"Couper",L_EN:"Cut"},
@@ -128,6 +129,7 @@ class PopText(tk.Text,tk.Tk): # classe surchargée pour afficher un popup-menu s
        return self.index(tk.INSERT)
 
     def curPosRowStartEnd(self):
+       # renvoie start,end de ligne de la sélection
        index=self.curPos()
        strRow=index.split(".")[0]
        start=strRow+".0"
@@ -150,11 +152,12 @@ class PopText(tk.Text,tk.Tk): # classe surchargée pour afficher un popup-menu s
        finally:
           pass
 
-
     def close(self):
-       pass # ferme le popup-menu
+       # ferme le popup-menu
+       pass
 
     def copy(self):
+       # copie la sélection dans le clipboard
        if self.hasSelection(): # selection exists
           self.parentWindow.clipboard_clear()  # clear clipboard-contents
           self.parentWindow.clipboard_append(self.selection_get()) # copy selection in clipboard
@@ -198,6 +201,7 @@ class PopText(tk.Text,tk.Tk): # classe surchargée pour afficher un popup-menu s
        self.tag_add(tk.SEL,start,end)
 
     def rows_count(self):
+       # comptabilise le nbr de lignes
        intNbrLignes=self.index('end-1c').split('.')[0]
        strChaine="Nbr de lignes: "+str(intNbrLignes)
        msg(strChaine)
@@ -220,6 +224,14 @@ class PopText(tk.Text,tk.Tk): # classe surchargée pour afficher un popup-menu s
 def msg(strTexte):
       msgbox.showinfo(moduleCmd, strTexte)
 
+def isNumeric(strValue):
+   return re.match('^[0-9\.\-]*$',strValue)
+
+def loopBearing(bearing):
+   newBear=bearing
+   if newBear>=360: newBear=newBear-360
+   if newBear<0: newBear=360+newBear
+   return newBear
 # -------------------------------------------------------------------------------
 def csvCommaIsInString(strString):
    # renvoie True si la chaine contient une virgule
@@ -268,6 +280,19 @@ def csvIsGpxRowOfValues(strLine):
       boolReturn=True
    return boolReturn
 
+def csvJoinStdValues(strType,lat,lon,strSym,strName):
+   strCSV=strType+","+str(lat)+","+str(lon)+","+strSym+","+strName
+   return strCSV
+
+def csvJoinValues(strType,lat,lon,strSym,strName,dist,bearing):
+   strCSV=csvJoinStdValues(strType,lat,lon,strSym,strName)+","+str("%.2f"%dist)+","+str("%.2f"%bearing)
+   return strCSV
+
+def csvJoinStrings(strType,strLat,strLon,strSym,strName,strDist="",strBearing=""):
+   if len(strDist)>0: strDist=","+strDist
+   if len(strBearing)>0: strBearing=","+strBearing
+   strCSV=strType+","+strLat+","+strLon+","+strSym+","+strName + strDist + strBearing
+   return strCSV
 # -------------------------------------------------------------------------------
 def distNmBetween2Points(floatLat1,floatLon1,floatLat2,floatLon2):
    lat1 = floatLat1 * math.pi/180
@@ -747,8 +772,9 @@ def mnuToolsCoordByBearingDistOnClick():
 
                   # affiche le résultat sur la dernière ligne
                   boolTrouve=True
-
+                  # concatène en fonction des champs présents (on utilisera donc pas la fonction csvJoinValues)
                   strResult=strType + str(lat) + "," + str(lon) + strSym + strName + "," + str(dist) + "," + str(bear)
+                  
                   txtDisplayContent.insert(tk.END,"\n"+strResult)
                else:
                   txtDisplayContent.insert(tk.END,"\n"+strLine)
@@ -757,17 +783,25 @@ def mnuToolsCoordByBearingDistOnClick():
 
    if not boolTrouve: msg(i18n("mnuToolsCoordByBearingDist_msg_info_err"))
 
+
 def mnuToolsMagnetDeclinOnClick():
    # demande à l'utilisateur une valeur de bearing puis si le champ bearing existe dans l'entête CSV, 
-   # ajoute cette valeur au bearing de chaque ligne
+   # remplace le bearing de chaque ligne par cette valeur
    # le résultat est écrit dans une nouvelle ligne en fin de la zone de texte
+   # accepte les paramètres o,w,e,-,+ pour le choix du signe (W=plus E=moins)
+   # accepte le paramètre m pour calculer les coordonnées du point magnétique correspondant
+   # accepte le paramètre t pour calculer la tangente du segment
+
    strInputOffsetBearing=""
    bearingOffset=0
    l=0
-   p=0
    c=0
+   t=0
+   boolMagn=False
+   boolTan=False
    strEntetes=""
-   strLeftCsv=""
+   strPtSym='"Waypoint"'
+   arrTan=[90,-90]
 
    strContenu=getDisplayContent()+"\n"
    arrContenu=strContenu.split("\n")
@@ -783,15 +817,31 @@ def mnuToolsMagnetDeclinOnClick():
             initialvalue=0)
 
          if not strInputOffsetBearing is None:
-            if re.match('^[0-9\.\-]*$',strInputOffsetBearing): # if isnumeric
+            strInputOffsetBearing=strInputOffsetBearing.upper()
+            if not (strInputOffsetBearing.find("M")==-1): boolMagn=True
+            if not (strInputOffsetBearing.find("T")==-1): boolTan=True
+
+            if not (strInputOffsetBearing.find("E")==-1): 
+               strInputOffsetBearing=strInputOffsetBearing.replace("E","")
+               strInputOffsetBearing=strInputOffsetBearing.replace("-","")
+               strInputOffsetBearing="-"+strInputOffsetBearing
+
+            strInputOffsetBearing=strInputOffsetBearing.replace("+","")
+            strInputOffsetBearing=strInputOffsetBearing.replace("O","")
+            strInputOffsetBearing=strInputOffsetBearing.replace("W","")
+            strInputOffsetBearing=strInputOffsetBearing.replace("T","")
+
+            if isNumeric(strInputOffsetBearing):
                bearingOffset=float(strInputOffsetBearing)
             else:
                bearingOffset=999 # sera ainsi hors plage
 
-            if bearingOffset>=-180 and bearingOffset<=180:
+            if bearingOffset>-360 and bearingOffset<360:
 
                for strLine in arrContenu:
                   strLine=strLine.strip()
+                  boolIsHeader=False
+                  boolIsData=False
                   l=l+1
                   if l==1: 
                      txtDisplayContent.insert(tk.END,"\n") # ajoute une ligne vierge en fin
@@ -799,22 +849,68 @@ def mnuToolsMagnetDeclinOnClick():
                   if csvIsGpxHeader(strLine,"bearing"):
                      strEntetes=strLine
                      strResult=strLine
-                     c=csvIndexOfCol(strEntetes,"bearing")
+
                   else:
                      if csvCommaIsInString(strLine):
-                        arrCols=csvLineToArray(strLine)
-                        bearing=arrCols[c]
-                        p=len(strLine)-len(bearing)
-                        strLeftCsv=strLine[0:p]
-                        bearing=float(bearing.strip()) + bearingOffset
-                        if bearing>=360: bearing=bearing-360
-                        if bearing<0: bearing=360+bearing
-                        strResult=strLeftCsv + str("%.2f"%bearing)
+                        arrValues=csvLineToArray(strLine)
+
+                        c=csvIndexOfCol(strEntetes,"type")
+                        type1=arrValues[c]
+
+                        c=csvIndexOfCol(strEntetes,"lat")
+                        lat1=float(arrValues[c])
+
+                        c=csvIndexOfCol(strEntetes,"lon")
+                        lon1=float(arrValues[c])
+
+                        c=csvIndexOfCol(strEntetes,"sym")
+                        sym1=arrValues[c]
+
+                        c=csvIndexOfCol(strEntetes,"name")
+                        name1=arrValues[c]+"v" # ajoute un car pour identifier le pt "variant"
+
+                        c=csvIndexOfCol(strEntetes,"dist")
+                        dist1=float(arrValues[c])
+
+                        c=csvIndexOfCol(strEntetes,"bearing") 
+                        bear1=float(arrValues[c])
+
+                        newBear=loopBearing(float(bear1) + bearingOffset)
+                        
+                        # le même point "géographique" avec le nouveau bearing
+                        strPtGM=csvJoinValues(type1,lat1,lon1,strPtSym,name1,dist1,newBear)
+
+                        # csv final à afficher
+                        strResult=strPtGM
+
+                        # calcul de tangente ( = 2 demi-tangentes ) perpendiculaire à la radiale
+                        if boolTan: 
+                           
+                           t=0
+                           lenTan=(dist1/20) # valeur arbitraire de la longueur de la demi-tangente
+                           if lenTan==0: lenTan=1 # NM
+
+                           for bearTanOffset in arrTan: # 2 valeurs: 90 et -90
+                              t=t+1
+                              bearTan=bear1+bearTanOffset
+                              nameTan=name1+"-T"
+
+                              # le point calculé à l'extrémité de la demi-tangente
+                              print(t,lat1,lon1,bearTan,lenTan)
+                              (latTan,lonTan)=pointRadialDistance(lat1,lon1,bearTan,lenTan)
+
+                              # ajoute le csv au résultat final
+                              strPtTan=csvJoinValues("T",latTan,lonTan,strPtSym,(nameTan+str(t)),lenTan,loopBearing(bearTan+bearingOffset))
+
+                              if t==1: strResult=strResult + "\n" + strEntetes
+                              strResult=strResult + "\n" + strPtTan
+
                      else:
                         strResult=strLine
 
                   # affiche le résultat sur la dernière ligne
                   txtDisplayContent.insert(tk.END,"\n" + strResult)
+
                txtDisplayContent.delete_last_blank_rows()
 
 def mnuToolsReplaceBlankRowsByHeaderOnClick():
@@ -911,7 +1007,7 @@ if __name__ == '__main__':
    panMain= tk.PanedWindow(mainWindow, orient=tk.VERTICAL,bg=PANBG)
 
    # panel Top / barre de boutons
-   WB=8 # largeur par défaut des boutons
+   WB=10 # largeur par défaut des boutons
    RLF=tk.FLAT
    panButtons = tk.PanedWindow(panMain, orient=tk.HORIZONTAL,bg=PANBG)
 
