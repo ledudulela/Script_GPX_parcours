@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-SCRIPT_VERSION=20210505.1931
+SCRIPT_VERSION=20210506.1824
 SCRIPT_AUTHOR="ledudulela"
 L_FR="FR"
 L_EN="EN"
@@ -9,11 +9,13 @@ LOCALE=L_FR # choose your LOCALE
 # Nécessite le package python3-tk si exécution avec python3 sinon python-tk 
 #
 # What's new in this version:
+#  - uniformisation du comportement des différents Tools pour l'affichage des résultats
 #  - amélioration du Tool > Correction du bearing géographique / magnétique
-#  avec les paramètres [w o e - +]  pris en charge ( remplace E par le signe - )
-#  e correspond à -
-#  w, o correspondent à +
-#  t (expérimental) pour un seul point, affichera les coordonnées des points à l'extrémité de la tangente du segment
+#   avec les paramètres [w o e - + t]  pris en charge ( remplace E par le signe - )
+#   e correspond à -
+#   w, o correspondent à +
+#   t donnera les coordonnées des points aux extrémités de la tangente du segment, idéal pour arc-dme
+#     s'utilise sur les radiales, en ajoutant la lettre t, par exemple: w20t
 #  - python: clean code
 #
 from sys import argv as argv
@@ -67,7 +69,7 @@ def i18n(strKey):
       "mnuSearchShowLog":{L_FR:"Afficher le Log", L_EN:"Show Log"},
       "mnuTools":{L_FR:"Outils",L_EN:"Tools"},
       "mnuToolsDist2Points":{L_FR:"Ajouter Distance & Bearing", L_EN:"Add Distance & Bearing"},
-      "mnuToolsCoordByBearingDist":{L_FR:"Coord. à partir de: lat,lon,dist,bearing", L_EN:"Coord. from: lat,lon,dist,bearing"},
+      "mnuToolsCoordByBearingDist":{L_FR:"Coord. à partir de: lat,lon, dist,bearing", L_EN:"Coord. from: lat,lon, dist,bearing"},
       "mnuToolsMagnetDeclin":{L_FR:"Correction du bearing géo./magnét.", L_EN:"Geo./Magnet. bearing correction"},
       "mnuToolsReplaceBlankRowsByHeader":{L_FR:"Remplacer les lignes vierges par l'entête", L_EN:"Replace blank rows by header"},
       "btnAppQuit":{L_FR:"Quitter",L_EN:"Quit"},
@@ -452,6 +454,12 @@ def displayContent(strContent): # affiche la chaine dans le champ dédié
 def getDisplayContent():
    return txtDisplayContent.get("1.0", tk.END)
 
+def getTrimDisplayContentArray():
+   txtDisplayContent.delete_last_blank_rows()
+   strContenu=getDisplayContent()+"\n"
+   arrContenu=strContenu.split("\n")
+   return arrContenu
+
 def setCurrentFichierDB(strFileName): # affiche le nom de fichier sélectionné dans le champ dédié
    lblSourceFilename['text']=strFileName
 
@@ -498,6 +506,8 @@ def rbtnTypeOnChange():
 
    strContenu=getDisplayContent()+"\n"
    arrContenu=strContenu.split("\n")
+   strContenu=""
+
    i=0
    for strLine in arrContenu:
       i=i+1
@@ -634,9 +644,8 @@ def mnuSearchShowLogOnClick():
 
 
 def mnuToolsDist2PointsOnClick():
+   # calcule la distance entre deux points consécutifs
    strEntetesCSV=""
-   strContenu=getDisplayContent()+"\n"
-   arrContenu=strContenu.split("\n")
    colLat=0
    colLon=0
    i=0
@@ -655,6 +664,8 @@ def mnuToolsDist2PointsOnClick():
 
    NEWCOLS="dist,bearing"   
 
+   arrContenu=getTrimDisplayContentArray()
+
    # recherche la position des colonnes lat et lon
    if len(arrContenu[0])>0:
       strLine=arrContenu[0].strip()
@@ -664,7 +675,8 @@ def mnuToolsDist2PointsOnClick():
 
    if colLon==0: # avertissement si la col Lon n'a pas été trouvée
       msg(i18n("mnuToolsDist2Points_msg_info_err"))
-   else:   
+   else:
+      txtDisplayContent.insert(tk.END,"\n"+"\n") # ajoute 2 lignes vierges en fin avant d'afficher le résultat
       for strLine in arrContenu:
          i=i+1
          strLine=strLine.strip()
@@ -699,11 +711,14 @@ def mnuToolsDist2PointsOnClick():
                strValue=str("%.2f"%floatDistance)+","+str("%.2f"%floatBearing)
             
             # ajoute la chaine en fin de ligne
-            txtDisplayContent.insert(strEOL,","+strValue)
+            #txtDisplayContent.insert(strEOL,","+strValue)
+
+            txtDisplayContent.insert(tk.END,"\n"+strLine+","+strValue)
 
       txtDisplayContent.delete_last_blank_rows()
 
 def mnuToolsCoordByBearingDistOnClick():
+   # calcule les coordonnées d'un point à partir d'un point existant, d'une distance et d'un bearing
    # Calculating coordinates given a bearing and a distance
    l=0
    i=0
@@ -731,10 +746,8 @@ def mnuToolsCoordByBearingDistOnClick():
 #   type,latitude,longitude,sym,name,dist,bearing
 #   T,-21.31,55.41,"Airport",[FMEP],15.00,270.00
 
-   strContenu=getDisplayContent()+"\n"
-   arrContenu=strContenu.split("\n")
-   strContenu=""
 
+   arrContenu=getTrimDisplayContentArray()
    if len(arrContenu)>0:
       strLine=arrContenu[0]
 
@@ -753,6 +766,8 @@ def mnuToolsCoordByBearingDistOnClick():
             boolContinue=False
 
       if boolContinue:
+         txtDisplayContent.insert(tk.END,"\n"+"\n") # ajoute 2 lignes vierges en fin avant d'afficher le résultat
+
          for strLine in arrContenu:
             strResult=""
             if len(arrContenu)>l: 
@@ -803,9 +818,7 @@ def mnuToolsMagnetDeclinOnClick():
    strPtSym='"Waypoint"'
    arrTan=[90,-90]
 
-   strContenu=getDisplayContent()+"\n"
-   arrContenu=strContenu.split("\n")
-   strContenu=""
+   arrContenu=getTrimDisplayContentArray()
    if len(arrContenu)>0:
       if not csvIsGpxHeader(arrContenu[0],"bearing"): # recherche le terme dans la première ligne du tableau
          msg(i18n("mnuToolsMagnetDeclin_msg_info_err"))
@@ -826,6 +839,7 @@ def mnuToolsMagnetDeclinOnClick():
                strInputOffsetBearing=strInputOffsetBearing.replace("-","")
                strInputOffsetBearing="-"+strInputOffsetBearing
 
+            strInputOffsetBearing=strInputOffsetBearing.replace(" ","")
             strInputOffsetBearing=strInputOffsetBearing.replace("+","")
             strInputOffsetBearing=strInputOffsetBearing.replace("O","")
             strInputOffsetBearing=strInputOffsetBearing.replace("W","")
@@ -844,7 +858,7 @@ def mnuToolsMagnetDeclinOnClick():
                   boolIsData=False
                   l=l+1
                   if l==1: 
-                     txtDisplayContent.insert(tk.END,"\n") # ajoute une ligne vierge en fin
+                     txtDisplayContent.insert(tk.END,"\n"+"\n") # ajoute lignes vierges en fin avant afficher résultat
 
                   if csvIsGpxHeader(strLine,"bearing"):
                      strEntetes=strLine
@@ -867,7 +881,8 @@ def mnuToolsMagnetDeclinOnClick():
                         sym1=arrValues[c]
 
                         c=csvIndexOfCol(strEntetes,"name")
-                        name1=arrValues[c]+"v" # ajoute un car pour identifier le pt "variant"
+                        name1=arrValues[c]
+                        if name1[-2:]!="-V":name1=name1+"-V" # ajoute un car pour identifier le pt "variant"
 
                         c=csvIndexOfCol(strEntetes,"dist")
                         dist1=float(arrValues[c])
@@ -878,14 +893,14 @@ def mnuToolsMagnetDeclinOnClick():
                         newBear=loopBearing(float(bear1) + bearingOffset)
                         
                         # le même point "géographique" avec le nouveau bearing
-                        strPtGM=csvJoinValues(type1,lat1,lon1,strPtSym,name1,dist1,newBear)
+                        strPtGM=csvJoinValues(type1,lat1,lon1,sym1,name1,dist1,newBear)
 
                         # csv final à afficher
                         strResult=strPtGM
 
                         # calcul de tangente ( = 2 demi-tangentes ) perpendiculaire à la radiale
                         if boolTan: 
-                           
+                           symTan='"Dot, White"'
                            t=0
                            lenTan=(dist1/20) # valeur arbitraire de la longueur de la demi-tangente
                            if lenTan==0: lenTan=1 # NM
@@ -896,14 +911,14 @@ def mnuToolsMagnetDeclinOnClick():
                               nameTan=name1+"-T"
 
                               # le point calculé à l'extrémité de la demi-tangente
-                              print(t,lat1,lon1,bearTan,lenTan)
                               (latTan,lonTan)=pointRadialDistance(lat1,lon1,bearTan,lenTan)
 
                               # ajoute le csv au résultat final
-                              strPtTan=csvJoinValues("T",latTan,lonTan,strPtSym,(nameTan+str(t)),lenTan,loopBearing(bearTan+bearingOffset))
+                              strPtTan=csvJoinValues("T",latTan,lonTan,symTan,(nameTan+str(t)),lenTan,loopBearing(bearTan+bearingOffset))
 
-                              if t==1: strResult=strResult + "\n" + strEntetes
-                              strResult=strResult + "\n" + strPtTan
+                              if t==1: strResult=strResult + "\n" + strEntetes + "\n"
+                              strResult=strResult + strPtTan + "\n"
+
 
                      else:
                         strResult=strLine
@@ -916,24 +931,22 @@ def mnuToolsMagnetDeclinOnClick():
 def mnuToolsReplaceBlankRowsByHeaderOnClick():
    # remplace les lignes vierges par le contenu de la ligne 1 (entêtes CSV)
    strEntetesCSV=""
-   strContenu=getDisplayContent()+"\n"
-   arrContenu=strContenu.split("\n")
-   n=len(arrContenu)-1
    i=0
    p=0
    l=0
    boolWrite=False
-   if n>0: strEntetesCSV=arrContenu[0].strip()
+   arrContenu=getTrimDisplayContentArray()
+   n=len(arrContenu)-1
+   if n>0: strEntetesCSV=arrContenu[0].strip() # copie la première ligne
    if len(strEntetesCSV):
       for i in range(n, -1, -1):
          strLine=arrContenu[i].strip()
          p=str(i+1)
          l=len(strLine)
          if boolWrite and l==0:
-            txtDisplayContent.delete(p+".0",p+".0")
-            txtDisplayContent.insert(p+".0",strEntetesCSV)
-
-         boolWrite=(l>0)
+               txtDisplayContent.delete(p+".0",p+".0")
+               txtDisplayContent.insert(p+".0",strEntetesCSV)
+         boolWrite=(l>0) and (strLine!=strEntetesCSV)
 
 # ----------------------------------------------------------------------------
 if __name__ == '__main__':
