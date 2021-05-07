@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-SCRIPT_VERSION=20210427.1845
+SCRIPT_VERSION=20210507.2247
 SCRIPT_AUTHOR="fdz, ctesc356"
 # Le script recherche dans la base de données (format GPX) les points spécifiés dans le fichier .txt 
 # Le résultat de la recherche est stockée  sous forme de fichiers .csv et .gpx ( expérimental: .xml pour route manager FGFS )
@@ -14,8 +14,7 @@ SCRIPT_AUTHOR="fdz, ctesc356"
 #  -d           : pour concaténer les fichiers CSV (données FGFS) en un seul fichier de données (.dat) au format GPX
 #
 # What's new in this version:
-#  - Adaptation pour une utilisation avec le script d'interface graphique (tkinter)
-#  - Améliorations mineures du code
+#  - Correction d'un bug d'affichage du pourcentage d'avancement lors d'une extraction
 #
 # Infos pratiques:
 # Le fichier .txt (contenant les points à rechercher) doit avoir le même nom que le script. Ex: parcours.py -> parcours.txt
@@ -566,14 +565,17 @@ def extractFromGpxFile(strFileName,strElementTreeEncoding):
          n=len(xmlWaypoints)
          p=0
          i=0
+         f=0
          for xmlWaypoint in xmlWaypoints:
             strXml=xmlDom.tostring(xmlWaypoint,encoding=strElementTreeEncoding,method="xml")
             pt=XmlToPoint(strXml,"W")
             p=p+1
+
             if float(pt.lat) >= floatLatMin and float(pt.lat) <= floatLatMax and float(pt.lon) >= floatLonMin and float(pt.lon) <= floatLonMax:
                if pt.sym not in arrSymBlackList:
                   i=i+1
-                  print(str(int(p/n*100))+"%", pt.toCsv())
+                  f=(float(p)/float(n)*100)
+                  print("["+str("%.1f"%f)+"%] "+pt.toCsv())
                   objFicGpx.write("\n"+pt.toGpx())
                   if pt.sym not in arrSymWhiteList: arrSymWhiteList.append(pt.sym)
 
