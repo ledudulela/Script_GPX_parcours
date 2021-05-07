@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-SCRIPT_VERSION=20210506.1824
+SCRIPT_VERSION=20210507.2247
 SCRIPT_AUTHOR="ledudulela"
 L_FR="FR"
 L_EN="EN"
@@ -9,14 +9,16 @@ LOCALE=L_FR # choose your LOCALE
 # Nécessite le package python3-tk si exécution avec python3 sinon python-tk 
 #
 # What's new in this version:
-#  - uniformisation du comportement des différents Tools pour l'affichage des résultats
+#  - Ajout du menu Application > Aide...
+#  - Sauvegarde du contenu dans un fichier systématiquement en UTF-8
+#  - Ajout du menu Tools > Convertir du CSV en GPX
 #  - amélioration du Tool > Correction du bearing géographique / magnétique
 #   avec les paramètres [w o e - + t]  pris en charge ( remplace E par le signe - )
 #   e correspond à -
 #   w, o correspondent à +
 #   t donnera les coordonnées des points aux extrémités de la tangente du segment, idéal pour arc-dme
 #     s'utilise sur les radiales, en ajoutant la lettre t, par exemple: w20t
-#  - python: clean code
+#   longueur de la demi-tangente redéfinie à L*sin(5)
 #
 from sys import argv as argv
 import math
@@ -52,6 +54,7 @@ def i18n(strKey):
       "mnuAppResetConfig":{L_FR:"Réinitialiser la configuration", L_EN:"Reset configuration"},
       "mnuAppOpenFile":{L_FR:"Ouvrir un fichier...", L_EN:"Open file..."},
       "mnuAppSaveContentAs":{L_FR:"Enregistrer le contenu...", L_EN:"Save content..."},
+      "mnuAppHelp":{L_FR:"Aide...", L_EN:"Help..."}, 
       "mnuAppAbout":{L_FR:"À propos...", L_EN:"About..."}, 
       "mnuAppExit":{L_FR:"Quitter", L_EN:"Exit"}, 
       "mnuData":{L_FR:"B.D.D",L_EN:"D.B"},
@@ -71,6 +74,7 @@ def i18n(strKey):
       "mnuToolsDist2Points":{L_FR:"Ajouter Distance & Bearing", L_EN:"Add Distance & Bearing"},
       "mnuToolsCoordByBearingDist":{L_FR:"Coord. à partir de: lat,lon, dist,bearing", L_EN:"Coord. from: lat,lon, dist,bearing"},
       "mnuToolsMagnetDeclin":{L_FR:"Correction du bearing géo./magnét.", L_EN:"Geo./Magnet. bearing correction"},
+      "mnuToolsConvertCsvToGpx":{L_FR:"Convertir le CSV en GPX", L_EN:"Convert CSV to GPX"},
       "mnuToolsReplaceBlankRowsByHeader":{L_FR:"Remplacer les lignes vierges par l'entête", L_EN:"Replace blank rows by header"},
       "btnAppQuit":{L_FR:"Quitter",L_EN:"Quit"},
       "btnSearchSearch":{L_FR:"Rechercher",L_EN:"Search"},
@@ -88,6 +92,7 @@ def i18n(strKey):
       "lblInfoLib1":{L_FR:"Base de données",L_EN:"Database"},
       "frmChoixType":{L_FR:"Points à rechercher",L_EN:"Points to search"},
       "lblInfoLib2":{L_FR:"Veuillez patentier",L_EN:"Please wait"},
+      "mnuAppHelp_msg_filenotfound":{L_FR:"Fichier introuvable.",L_EN:"File not found."},
       "mnuDataExtractDBFile_msg_info_extract":{L_FR:"Veuillez afficher, modifier et sauvegarder les paramètres de configuration avant de lancer une extraction.",L_EN:"Please open, modify and save configuration parameters before extraction."},
       "mnuToolsDist2Points_msg_info_err":{L_FR:"Format de données non valide.\nCSV sans entêtes lat,lon ou dist,bearing déjà présents.",L_EN:"Bad data format\nCSV without lat,lon header or dist,bearing already exist."},
       "mnuToolsCoordByBearingDist_msg_info_err":{L_FR:"Format de données non valide.\nCSV sans entêtes lat,lon,dist,bearing.",L_EN:"Bad data format\nCSV without lat,lon,dist,bearing header."},
@@ -211,16 +216,17 @@ class PopText(tk.Text,tk.Tk): # classe surchargée pour afficher un popup-menu s
     def delete_last_blank_rows(self):
       # supprime les lignes vierges en fin
       intNbrLignes=int(self.index('end-1c').split('.')[0])
-      for i in range(intNbrLignes-1, -1, -1):
-         strRow=str(i)
-         start=strRow+".0"
-         end=strRow+".end+1c"
-         strContent=self.get(start,end)
-         #print(start,end,strContent,str(len(strContent)))
-         if len(strContent)==1: 
-            self.delete(start,end)
-         else:
-            break
+      if intNbrLignes>1:
+         for i in range(intNbrLignes-1, -1, -1):
+            strRow=str(i)
+            start=strRow+".0"
+            end=strRow+".end+1c"
+            strContent=self.get(start,end)
+            #print(start,end,strContent,str(len(strContent)))
+            if len(strContent)==1: 
+               self.delete(start,end)
+            else:
+               break
 
 # -------------------------------------------------------------------------------
 def msg(strTexte):
@@ -548,9 +554,18 @@ def mnuAppSaveContentAsOnClick():
    strFilename=tkFileDialog.asksaveasfilename(title=i18n("os_msg_save_content_as"),filetypes=arrTypesFiles)
    if strFilename:
       strContenu=getDisplayContent()
+      if cmd.sys.version_info.major<3: strContenu=strContenu.encode("utf-8")
       setContenuFichier(strFilename,strContenu)
       strFilename=cmd.os.path.split(strFilename)[1]
       lstFichiersRefresh(strFilename)
+
+def mnuAppHelpOnClick():
+   strFilename=argv[0].replace(".py","")  + "_help_" + LOCALE.lower()+".txt"
+   if cmd.os.path.exists(strFilename):
+      strContenu=getContenuFichier(strFilename)
+      displayContent(strContenu)
+   else:
+      msg(i18n("mnuAppHelp_msg_filenotfound") + "\n"+strFilename )
 
 def mnuAppAboutOnClick():
    msg("Version: "+str(SCRIPT_VERSION))
@@ -764,6 +779,8 @@ def mnuToolsCoordByBearingDistOnClick():
             txtDisplayContent.insert(tk.END,"\n")
          else:
             boolContinue=False
+      else:
+         if strLine[0:1] in ('W','T','<') or len(strLine)<3: boolContinue=False
 
       if boolContinue:
          txtDisplayContent.insert(tk.END,"\n"+"\n") # ajoute 2 lignes vierges en fin avant d'afficher le résultat
@@ -775,7 +792,7 @@ def mnuToolsCoordByBearingDistOnClick():
                if csvIsGpxRowOfValues(strLine):
                   arrColValues=csvLineToArray(strLine)
                   p=p+1
-                  if not iType==None: strType=arrColValues[iType]+","
+                  if not iType==None:strType=arrColValues[iType]+","
                   if not iLat==None: lat1=float(arrColValues[iLat])
                   if not iLon==None: lon1=float(arrColValues[iLon])
                   if not iSym==None: strSym=',"Waypoint"'
@@ -785,7 +802,7 @@ def mnuToolsCoordByBearingDistOnClick():
 
                   (lat,lon) = pointRadialDistance(lat1,lon1,bear,dist)
 
-                  # affiche le résultat sur la dernière ligne
+                   # affiche le résultat sur la dernière ligne
                   boolTrouve=True
                   # concatène en fonction des champs présents (on utilisera donc pas la fonction csvJoinValues)
                   strResult=strType + str(lat) + "," + str(lon) + strSym + strName + "," + str(dist) + "," + str(bear)
@@ -902,8 +919,8 @@ def mnuToolsMagnetDeclinOnClick():
                         if boolTan: 
                            symTan='"Dot, White"'
                            t=0
-                           lenTan=(dist1/20) # valeur arbitraire de la longueur de la demi-tangente
-                           if lenTan==0: lenTan=1 # NM
+                           lenTan=dist1*math.sin(math.radians(5)) # longueur de la demi-tangente
+                           if lenTan<1: lenTan=1 # NM
 
                            for bearTanOffset in arrTan: # 2 valeurs: 90 et -90
                               t=t+1
@@ -927,6 +944,66 @@ def mnuToolsMagnetDeclinOnClick():
                   txtDisplayContent.insert(tk.END,"\n" + strResult)
 
                txtDisplayContent.delete_last_blank_rows()
+
+def mnuToolsConvertCsvToGpxOnClick():
+   strResult=""
+   strEntetes=""
+   boolTrackpoints=""
+
+   arrContenu=getTrimDisplayContentArray()
+   if len(arrContenu)>0:
+      strLine=arrContenu[0]
+      if csvIsGpxHeader(strLine):
+         strEntetes=strLine
+         iType=csvIndexOfCol(strLine,"type")
+         iLat=csvIndexOfCol(strLine,"lat")
+         iLon=csvIndexOfCol(strLine,"lon")
+         iSym=csvIndexOfCol(strLine,"sym")
+         iName=csvIndexOfCol(strLine,"name")
+         iDist=csvIndexOfCol(strLine,"dist")
+         iBear=csvIndexOfCol(strLine,"bearing")
+      if strEntetes!="":
+         for strLine in arrContenu:
+            #if csvCommaIsInString(strLine):
+            if csvIsGpxRowOfValues(strLine):
+               arrColValues=csvLineToArray(strLine)
+               strType="wpt"
+               strLat="0.0"
+               strLon="0.0"
+               strSym="Waypoint"
+               strName="Point"
+               strDist=""
+               strBear=""
+            
+               if not iType==None:  
+                  if arrColValues[iType]=="T": strType="trkpt"
+               if not iLat==None: 
+                  strLat=arrColValues[iLat]
+               if not iLon==None: 
+                  strLon=arrColValues[iLon]
+               if not iSym==None: 
+                  strSym=arrColValues[iSym]
+               if not iName==None: 
+                  strName=arrColValues[iName]
+               if not iDist==None: 
+                  strDist=arrColValues[iDist]
+               if not iBear==None: 
+                  strBear=arrColValues[iBear]
+               
+               strGpxRow='<' + strType + ' lat="'+strLat+'"'+' lon="' +strLon + '">'  
+               strGpxRow=strGpxRow + "<name>" + strName.replace('"','') + "</name>" + "<sym>" + strSym.replace('"','') + "</sym>"
+               if len(strBear)>0: strGpxRow=strGpxRow + "<course>" + strBear + "</course>"
+               if len(strDist)>0: strGpxRow=strGpxRow + "<extensions><distance_nm>" + strDist + "</distance_nm></extensions>"
+               
+               strGpxRow=strGpxRow + "</"+strType+">"
+               strResult=strResult+"\n"+strGpxRow
+
+   if len(strResult)>0:
+      if strType=="trkpt": strResult="\n" + "<trk><trkseg>" + strResult + "\n" + "</trkseg></trk>" # <name>track</name>
+      GPXNAMESPACE=cmd.GPXNAMESPACE
+      strResult=cmd.XMLHEADER + "\n" + cmd.GPXROOTNODE%argv[0] + strResult + "\n" + "</gpx>"
+      displayContent(strResult)
+
 
 def mnuToolsReplaceBlankRowsByHeaderOnClick():
    # remplace les lignes vierges par le contenu de la ligne 1 (entêtes CSV)
@@ -967,6 +1044,7 @@ if __name__ == '__main__':
    mnuApp.add_command(label=i18n("mnuAppOpenFile"), command=mnuAppOpenFileOnClick)
    mnuApp.add_command(label=i18n("mnuAppSaveContentAs"), command=mnuAppSaveContentAsOnClick)
    mnuApp.add_separator()
+   mnuApp.add_command(label=i18n("mnuAppHelp"), command=mnuAppHelpOnClick)
    mnuApp.add_command(label=i18n("mnuAppAbout"), command=mnuAppAboutOnClick)
    mnuApp.add_separator()
    mnuApp.add_command(label=i18n("mnuAppExit"), command=mainWindow.quit)
@@ -994,6 +1072,8 @@ if __name__ == '__main__':
    mnuTools.add_command(label=i18n("mnuToolsDist2Points"), command=mnuToolsDist2PointsOnClick)
    mnuTools.add_command(label=i18n("mnuToolsCoordByBearingDist"), command=mnuToolsCoordByBearingDistOnClick)
    mnuTools.add_command(label=i18n("mnuToolsMagnetDeclin"), command=mnuToolsMagnetDeclinOnClick)
+   mnuTools.add_separator()
+   mnuTools.add_command(label=i18n("mnuToolsConvertCsvToGpx"), command=mnuToolsConvertCsvToGpxOnClick)
    mnuTools.add_separator()
    mnuTools.add_command(label=i18n("mnuToolsReplaceBlankRowsByHeader"), command=mnuToolsReplaceBlankRowsByHeaderOnClick)
 
