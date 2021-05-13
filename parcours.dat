@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.0" creator="parcours.py" xmlns="http://www.topografix.com/GPX/1/0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/0/gpx.xsd">
-<wpt lat="-37.928333" lon="144.755"><name>POINT</name><sym>Triangle, Green</sym></wpt>
-<wpt lat="34.810428" lon="-82.069714"><name>FOUND</name><sym>Triangle, Green</sym></wpt>
-</gpx>
